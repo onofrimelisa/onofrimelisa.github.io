@@ -1,0 +1,110 @@
+================================================================================
+EDUCATION & CERTIFICATIONS
+================================================================================
+
+ENGLISH LANGUAGE STUDIES
+--------------------------------------------------------------------------------
+Institution: Instituto de Lengua Inglesa
+Period: 2009 - 2016
+
+Certifications:
+  - Certificate in Advanced English (CAE) - C1 Level
+    Issued by: University of Cambridge
+    Year: 2016
+    Certificate scan: docs/CAE_English.jpeg
+
+  - First Certificate in English (FCE) - B2 Level
+    Issued by: University of Cambridge
+    Year: 2015
+    Certificate scan: docs/FCE_English.jpeg
+
+MANDARIN CHINESE STUDIES
+--------------------------------------------------------------------------------
+Institution: Instituto Confucio de La Plata
+Period: 2016 - 2020
+
+Certifications:
+  - HSK Level 3
+    Issued by: Hanban Confucius Institute
+    Year: 2018
+    Credential ID: H31810053139
+    Certificate scans: docs/HSK3.jpeg, docs/HSK3_results.jpeg
+
+  - HSK Level 2 (renewed)
+    Issued by: Hanban Confucius Institute
+    Year: 2023
+    Credential ID: H22312044186
+    Certificate scan: docs/HSK2_2.jpeg
+
+  - HSK Level 2
+    Issued by: Hanban Confucius Institute
+    Year: 2017
+    Certificate scan: docs/HSK2.jpeg
+
+  - HSK Level 1
+    Issued by: Hanban Confucius Institute
+    Year: 2017
+    Certificate scan: docs/HSK1.jpeg
+
+DEGREE
+--------------------------------------------------------------------------------
+
+1) Licenciatura en Sistemas (Bachelor's degree in Information Systems)
+   University: Universidad Nacional de La Plata (UNLP) - Facultad de Informatica
+   Period: 2017 - 2024
+   GPA: 8.51 / 10 (US equivalent: ~3.6 / 4.0)
+   Diploma scan: docs/diploma_lic.pdf
+   Transcript: docs/analitico_lic.pdf
+   Curriculum: docs/plan_estudios.pdf
+   Academic history: docs/historia_academica.pdf
+
+   Thesis: "Technological Innovation in Local Commerce: Development of the
+   Web Platform for 'El Paseo te lo lleva'"
+   Thesis document: docs/Melisa_Onofri_tesis.pdf
+
+   Thesis summary:
+     Designed and built a full-stack e-commerce web platform for a local
+     solidarity marketplace ("El Paseo te lo lleva") affiliated with UNLP,
+     connecting 200+ local producers with consumers. The platform replaced
+     manual WhatsApp/Google Forms-based order management with a modern
+     digital solution featuring role-based access (consumers, producers,
+     admins), automated inventory management, business reporting dashboards,
+     order lifecycle management, and a dynamic pickup-point map.
+     Tech stack: Angular + TypeScript (frontend), Java + Jersey RESTful API
+     with Hibernate/JPA + MySQL (backend), JWT authentication, Swagger API
+     docs, Flyway DB migrations, Maven build system. Built following Agile
+     methodologies (Scrumban), semantic versioning, and open-source principles.
+     Deployed to production and validated with real end users across all roles.
+
+2) Analista Programador Universitario (Intermediate degree - University Programmer Analyst)
+   University: Universidad Nacional de La Plata (UNLP) - Facultad de Informatica
+   Period: 2017 - 2020
+   GPA: 8.46 / 10 (US equivalent: ~3.5 / 4.0)
+   Diploma scan: docs/diploma_analista_programador_universitario.pdf
+   Transcript: docs/analitico_programador_universitario.pdf
+
+HONORS & AWARDS
+--------------------------------------------------------------------------------
+  - Outstanding Freshman Award (Ingresante Destacado), 2017
+    Awarded to first-year students who achieved a GPA above 8.0/10 during
+    their initial academic year.
+
+  - Academic Merit Award (Premio al Merito Academico), 2018
+    Granted to top-performing students with the highest GPAs in the program.
+
+  - Academic Merit Award (Premio al Merito Academico), 2020
+    Granted to top-performing students with the highest GPAs in the program.
+
+
+OTHER CERTIFICATIONS / COURSES
+--------------------------------------------------------------------------------
+
+  - AWS Certified Cloud Practitioner
+    Issued by: Amazon Web Services
+    Year: 2020
+    Credential ID: FVEHV7NCNMR41P92
+    Credential URL: https://www.credly.com/badges/0b84ffed-412e-44f2-9632-e24ebbc59163/linked_in_profile
+
+  - AWS Technical Professional
+    Issued by: Amazon Web Services
+    Year: 2020

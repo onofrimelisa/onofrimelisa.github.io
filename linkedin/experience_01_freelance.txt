@@ -1,0 +1,16 @@
+================================================================================
+LINKEDIN - EXPERIENCE #1
+================================================================================
+
+Title: Freelance Software Developer
+Period: 2019 - 2020
+
+Highlight text:
+
+  Independently designed and developed Zeppelin Pedidos (https://zeppelinok.com),
+  a web application for a local delivery company in Buenos Aires, Argentina.
+  Owned the entire software development lifecycle end-to-end — from requirements
+  gathering and architecture design to implementation, testing, and deployment —
+  making autonomous technical decisions that consistently met and exceeded client
+  expectations. Built from scratch using Angular, TypeScript, and Firebase
+  (Cloud Firestore, Realtime Database, Hosting, Auth).

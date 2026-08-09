@@ -1,0 +1,26 @@
+================================================================================
+EXPERIENCE #1 - FREELANCE SOFTWARE DEVELOPER
+================================================================================
+
+Role: Freelance Software Developer
+Period: 2019 - 2020
+Type: Freelance
+Project: Zeppelin Pedidos (https://zeppelinok.com)
+
+Description:
+  Web application for a local delivery company operating in a small town
+  in Buenos Aires province, Argentina. Built from scratch as a freelance
+  project.
+
+Tech stack:
+  - Angular
+  - TypeScript
+  - Firebase (Cloud Firestore, Realtime Database, Hosting, Auth)
+
+Key highlights:
+  - First professional project as a developer
+  - Full ownership of the entire software development lifecycle
+  - End-to-end: requirements gathering, architecture decisions, UI/UX
+    design, development, testing, and deployment
+  - Autonomous decision-making that met and exceeded client expectations
+  - Applied academic knowledge to a real-world production product

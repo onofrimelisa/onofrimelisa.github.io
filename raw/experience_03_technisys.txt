@@ -1,0 +1,25 @@
+================================================================================
+EXPERIENCE #3 - TECHNISYS
+================================================================================
+
+Role: Fullstack Software Engineer
+Company: Technisys
+Period: October 2020 - January 2021 (4 months)
+Type: Full-time
+
+Description:
+  Part of a globally distributed team with professionals from multiple
+  countries. The team was responsible for the company's first project with
+  a North American client, adapting a banking core platform to meet the
+  new US client's requirements.
+
+Details:
+  - All communication in English (global team)
+  - Adapting/customizing a core banking platform for a US client
+  - Company's first North American client engagement
+  - Scrum methodology
+
+Key highlights:
+  - Experience in fintech / core banking domain
+  - Globally distributed, multicultural team
+  - Customization of enterprise-level banking software for the US market

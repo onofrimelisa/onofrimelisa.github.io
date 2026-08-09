@@ -1,0 +1,38 @@
+================================================================================
+EXPERIENCE #2 - SOUTHWORKS
+================================================================================
+
+Role: Engineering Associate
+Company: Southworks
+Period: April 2020 - October 2020 (7 months)
+Type: Full-time
+
+Client: Discovery Channel (US-based)
+  - All ceremonies and communication in English
+  - First experience working directly with a US client
+
+Description:
+  Part of a team that designed, developed, tested, and deployed several
+  applications from scratch for Discovery Channel. Greenfield project —
+  built everything from the ground up.
+
+Tech stack & tools:
+  - Node.js + TypeScript
+  - Microservices architecture
+  - AWS (trained and certified during this role)
+  - Infrastructure as Code with Pulumi
+  - SQL and NoSQL databases
+  - Monitoring: Datadog, AWS CloudWatch
+  - CI/CD: CircleCI
+  - Testing: Unit and Integration tests
+  - JIRA, Scrum methodology
+  - Daily client reporting
+
+Key highlights:
+  - First professional experience with a US-based client (Discovery Channel)
+  - All communication and ceremonies conducted in English
+  - Greenfield development — designed and built applications from scratch
+  - Microservices architecture design and database model design
+  - Earned AWS Certified Cloud Practitioner during this role
+  - Full SDLC involvement: design, development, testing, deployment,
+    infrastructure management, and monitoring

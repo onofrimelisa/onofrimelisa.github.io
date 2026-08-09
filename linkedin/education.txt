@@ -1,0 +1,52 @@
+================================================================================
+LINKEDIN - EDUCATION SECTION
+================================================================================
+
+ENGLISH LANGUAGE STUDIES
+--------------------------------------------------------------------------------
+Instituto de Lengua Inglesa | 2009 - 2016
+
+Highlight text:
+  Completed 7 years of intensive English language training, earning two
+  University of Cambridge certifications: FCE (B2) in 2015 and CAE (C1) in
+  2016. Proficient in professional and technical English communication.
+
+MANDARIN CHINESE STUDIES
+--------------------------------------------------------------------------------
+Instituto Confucio de La Plata | 2016 - 2020
+
+Highlight text:
+  Studied Mandarin Chinese for 4 years, achieving HSK Level 3 certification
+  (Hanban Confucius Institute). Demonstrates strong aptitude for language
+  acquisition and cross-cultural communication.
+
+DEGREE
+--------------------------------------------------------------------------------
+
+1) Universidad Nacional de La Plata (UNLP)
+   Bachelor's in Information Systems (Licenciatura en Sistemas) | 2017 - 2024
+   GPA: 3.6 / 4.0
+
+   Highlight text:
+     Graduated with honors (GPA 3.6/4.0) from one of Argentina's top public
+     universities. Received the Outstanding Freshman Award (2017) and two
+     Academic Merit Awards (2018, 2020).
+
+     Capstone thesis: Designed and built a full-stack e-commerce platform for a
+     university-affiliated solidarity marketplace serving 200+ local producers.
+     Led the entire software lifecycle — requirements analysis, system design,
+     implementation, testing, and production deployment — using Angular,
+     TypeScript, Java (Jersey REST API), Hibernate/JPA, MySQL, and JWT
+     authentication. The platform automated manual order workflows, introduced
+     business analytics dashboards, and was validated with real end users.
+     Built with Agile methodologies (Scrumban) and published as open-source
+     software.
+
+2) Universidad Nacional de La Plata (UNLP)
+   University Programmer Analyst (intermediate degree) | 2017 - 2020
+   GPA: 3.5 / 4.0
+
+   Highlight text:
+     Earned an intermediate technical degree in 3 years while maintaining a
+     3.5/4.0 GPA, covering core CS fundamentals: data structures, algorithms,
+     databases, software engineering, and object-oriented programming.

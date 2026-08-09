@@ -1,0 +1,17 @@
+================================================================================
+LINKEDIN - EXPERIENCE #2
+================================================================================
+
+Title: Engineering Associate
+Company: Southworks
+Period: April 2020 - October 2020
+
+Highlight text:
+
+  Joined a team building greenfield applications from scratch for Discovery
+  Channel (US), with all communication and Agile ceremonies conducted in
+  English. Contributed across the full development lifecycle — microservices
+  architecture design, database modeling (SQL/NoSQL), backend development
+  with Node.js and TypeScript, infrastructure provisioning with Pulumi on AWS,
+  CI/CD pipelines (CircleCI), and production monitoring (Datadog, CloudWatch).
+  Earned the AWS Certified Cloud Practitioner certification during this period.
