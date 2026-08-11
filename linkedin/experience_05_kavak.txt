@@ -1,0 +1,21 @@
+================================================================================
+LINKEDIN - EXPERIENCE #5
+================================================================================
+
+Title: Software Engineer
+Company: Kavak
+Period: July 2022 - August 2023
+
+Highlight text:
+
+  Worked in Kavak's fintech division (Capital), automating core banking
+  processes that were previously manual — delivering directly profitable,
+  high-impact solutions for the business. Continuously designed and built
+  greenfield microservices and applications from scratch, applying software
+  engineering best practices and design patterns across a polyglot stack: Go,
+  Node.js (TypeScript), and Java 11+ with Spring Boot and Hibernate/JPA.
+
+  Built full-stack solutions including backend services backed by PostgreSQL
+  and an internal backoffice with Angular and NestJS. Managed infrastructure
+  on AWS, implemented observability with Datadog dashboards and alerts, and
+  shipped continuously using Argo CD and Gitflow.

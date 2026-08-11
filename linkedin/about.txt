@@ -1,0 +1,53 @@
+================================================================================
+LINKEDIN - ABOUT SECTION
+================================================================================
+
+Current version (to be updated):
+
+  Graduated from La Plata's IT National University as a Programmer Analyst
+  and with a Bachelor's Degree in Computer Science.
+
+  I consider myself a self-demanding, hardworking and proactive person,
+  always willing to face new challenges which allow me to gain expertise
+  and continue to grow in this exciting profession.
+
+  I think the key to success is teamwork, so I always give my best and
+  push my limits in order to reach the greatest achievements as a team.
+
+  To my mind, the issues I tackle on a daily basis are just another
+  opportunity to widen my horizons and become a better professional.
+
+  Furthermore, I'm passionate about learning different languages: after
+  studying English for seven years, I'm currently walking through my fifth
+  year as a Mandarin Chinese student, having achieved different
+  international certifications that manifest my commitment to my studies.
+
+--------------------------------------------------------------------------------
+
+Proposed version:
+
+  Senior Software Engineer with 5+ years of experience designing,
+  building, and shipping production systems across fintech, e-commerce,
+  and platform infrastructure. B.S. in Information Systems from
+  Universidad Nacional de La Plata (GPA 3.6/4.0, Academic Merit Awards).
+
+  I specialize in backend and full-stack development with a strong focus
+  on microservices architecture, distributed systems, and third-party
+  integrations. I've built authorization platforms handling millions of
+  requests (Mercado Libre), core banking automation (Kavak), insurance
+  policy issuance engines (Ueno Bank), and cross-marketplace data
+  synchronization services (NocNoc) — consistently owning systems
+  end-to-end from design through production monitoring.
+
+  Core technologies: Java, Go, Node.js (TypeScript), Python, Angular,
+  React. Experienced with AWS, PostgreSQL, MySQL, NoSQL databases,
+  Docker, CI/CD pipelines, and observability tools (Datadog, NewRelic,
+  Kibana).
+
+  I thrive in fast-paced, distributed teams and have worked with US-based
+  clients and global teams since early in my career — all communication
+  in English. AWS Certified Cloud Practitioner. Cambridge C1 Advanced
+  (CAE) certified.
+
+  Passionate about building resilient, scalable systems and always looking
+  for the next engineering challenge.

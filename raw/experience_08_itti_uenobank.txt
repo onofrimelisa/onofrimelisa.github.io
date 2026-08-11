@@ -1,0 +1,43 @@
+================================================================================
+EXPERIENCE #8 - ITTI / UENO BANK
+================================================================================
+
+Role: Senior Software Engineer
+Company: itti (UenoBank division - banking/fintech)
+Department: Insurances Team
+Period: October 2024 - August 2025 (11 months)
+Type: Full-time
+
+Description:
+  Part of the Insurances team at Ueno Bank, building the Insurance Core
+  platform from the ground up. Designed and implemented a microservices
+  architecture integrating with external insurance providers.
+
+  Key responsibility: Developed the Insurance Manager microservice from
+  scratch — the core orchestration service for policy issuance. This
+  service became the generic, scalable foundation that enabled the launch
+  of every insurance product (life, mobile, commercial, home insurance),
+  each with its own unique business rules and integration requirements.
+
+  Major challenge: Integrating the modern microservices architecture with
+  a legacy external provider whose services had reliability issues.
+  Applied resilience patterns including circuit breaker, async communication,
+  retries, and fallback strategies to ensure the platform remained stable
+  despite the provider's limitations.
+
+Tech stack & tools:
+  - Backend: Kotlin, Go
+  - Databases: SQL and NoSQL
+  - Cloud: AWS
+
+Key highlights:
+  - Senior-level role in fintech/insurtech domain
+  - Designed and built core policy issuance microservice from scratch
+  - Created generic, scalable architecture that served as the foundation
+    for all insurance products (life, mobile, commercial, home)
+  - Integration with legacy external providers using resilience patterns
+    (circuit breaker, async communication, retries)
+  - End-to-end ownership: design, development, testing, deployment,
+    monitoring
+  - Microservices architecture design with async inter-service
+    communication for scalability

@@ -1,0 +1,40 @@
+================================================================================
+EXPERIENCE #9 - NOCNOC (CURRENT)
+================================================================================
+
+Role: Senior Software Engineer
+Company: NocNoc
+Team: Sellers
+Period: August 2025 - Present
+Type: Full-time
+
+Description:
+  Part of the Sellers team, responsible for building and maintaining the
+  integration layer that enables sellers to connect to the NocNoc platform
+  through multiple channels: public API, Shopify integration, SFTP, and
+  Seller Center.
+
+  Owned the Amazon Scraper service — a critical microservice responsible
+  for fetching and keeping product information synchronized from Amazon.
+  This data directly impacted sales performance and NocNoc's reputation
+  across the marketplaces where it sells (e.g., Mercado Libre). The
+  service required careful adherence to Amazon's API guidelines, including
+  implementing distributed rate limiting to comply with throttling
+  policies.
+
+Tech stack & tools:
+  - Backend: TypeScript, Java
+  - Cloud: AWS
+  - Architecture: Microservices
+  - Design patterns, distributed rate limiting
+  - Integrations: Amazon API, Shopify, SFTP, public REST API
+
+Key highlights:
+  - Senior-level role — current position
+  - Multi-channel seller integration platform (API, Shopify, SFTP,
+    Seller Center)
+  - Owned critical Amazon Scraper service tied directly to revenue and
+    marketplace reputation
+  - Distributed rate limiting to comply with Amazon API constraints
+  - Microservices architecture with design patterns
+  - Cross-platform data synchronization (Amazon -> NocNoc -> Mercado Libre)

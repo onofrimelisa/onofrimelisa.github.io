@@ -1,0 +1,35 @@
+================================================================================
+EXPERIENCE #6 - EMI LABS
+================================================================================
+
+Role: Semi-Senior Software Engineer
+Company: Emi Labs (AI-powered workforce hiring platform)
+Period: August 2023 - April 2024 (9 months)
+Type: Full-time
+
+About the company:
+  Emi Labs is an AI-driven platform that automates high-volume recruitment
+  processes (attracting, screening, interviewing, onboarding) for major
+  enterprises like Walmart, OXXO, Coca-Cola FEMSA, and Heineken. The
+  platform processes 12M+ conversations via WhatsApp, Messenger, and SMS
+  across 50+ enterprise clients in Mexico and the US.
+
+Description:
+  Part of the integrations team, responsible for building and maintaining
+  the integration layer that enabled clients in Mexico and the US to connect
+  to Emi's ecosystem. Balanced two parallel objectives: customizing the
+  product to meet specific client requirements while continuing to develop
+  a generic, scalable, cross-client solution.
+
+Tech stack & tools:
+  - Backend: TypeScript, Java, Go
+  - Databases: SQL and NoSQL
+  - Cloud: AWS
+
+Key highlights:
+  - Built client-facing integrations for the US and Mexico markets
+  - Designed scalable, cross-client architecture while delivering
+    client-specific customizations
+  - AI/ML product domain — conversational AI platform
+  - Enterprise clients: Walmart, OXXO, Coca-Cola FEMSA, Heineken
+  - Balancing product customization with platform scalability

@@ -1,0 +1,42 @@
+================================================================================
+LINKEDIN - EXPERIENCE #4
+================================================================================
+
+Company: Mercado Libre
+Department: Platform Security 360 - Authorizations
+
+------
+
+Title: Semi-Senior Software Engineer (Promoted)
+Period: March 2022 - July 2022
+
+Highlight text:
+
+  Promoted to Semi-Senior Engineer after consistently delivering high-impact
+  work on Mercado Libre's next-generation authorization platform.
+
+------
+
+Title: Software Development Analyst
+Period: February 2021 - March 2022
+
+Highlight text:
+
+  Designed and built core components of Mercado Libre's new authorization
+  platform — an AWS IAM-inspired, policy-based access control system serving
+  as critical infrastructure for the entire company. Our services sat in the
+  critical path of virtually every application at MELI, handling massive
+  traffic volumes and directly impacting the experience of millions of users
+  across Latin America.
+
+  Developed multi-language SDKs (Java, Go, Python, Node.js) and a
+  Docker-based sidecar deployment model to enable seamless integration for
+  internal engineering teams. Every line of code had to meet the highest
+  standards for performance, reliability, and zero-error tolerance — our
+  platform's latency and availability directly affected every downstream
+  service.
+
+  Built backend services in Java and Go with a microservices architecture,
+  frontend tooling in React, and maintained production health through on-call
+  rotations using Datadog, Kibana, and NewRelic. Practiced rigorous stress
+  testing to validate performance under real-world scale.

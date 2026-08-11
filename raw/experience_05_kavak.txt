@@ -1,0 +1,36 @@
+================================================================================
+EXPERIENCE #5 - KAVAK
+================================================================================
+
+Role: Software Engineer
+Company: Kavak (largest used-car e-commerce platform in Latin America)
+Department: Capital (Fintech / Core Banking)
+Period: July 2022 - August 2023 (1 year 2 months)
+Type: Full-time
+
+Description:
+  Part of the Capital team within Kavak's fintech division, responsible
+  for automating manual processes in the core banking operations. The
+  team's work was directly profitable and game-changing for the company,
+  replacing manual workflows with automated systems. Continuously
+  building new applications from scratch following software development
+  best practices and design patterns.
+
+Tech stack & tools:
+  - Backend: Go, Node.js (TypeScript), Java 11+ (Spring Boot, Hibernate/JPA)
+  - Build: Gradle
+  - Frontend/Backoffice: Angular + NestJS
+  - Databases: PostgreSQL, migrations with DBMate
+  - Cloud: AWS
+  - Monitoring: Datadog (dashboards and alerts)
+  - CI/CD: Argo CD, Gitflow
+  - Architecture: Microservices
+  - Methodology: Scrum, JIRA
+
+Key highlights:
+  - Fintech domain — core banking operations automation
+  - Direct business impact: automated processes that were profitable
+    and game-changing for the company
+  - Greenfield development — continuously building new apps from scratch
+  - Polyglot backend: Go, Node.js (TypeScript), Java (Spring Boot)
+  - Full-stack: backend services + Angular/NestJS backoffice

@@ -1,0 +1,15 @@
+================================================================================
+LINKEDIN - EXPERIENCE #7 (Career Break)
+================================================================================
+
+Title: Career Break - Professional Growth
+Period: April 2024 - October 2024
+
+Highlight text:
+
+  Took a intentional career break to complete my Bachelor's degree thesis in
+  Information Systems at Universidad Nacional de La Plata — designing and
+  building a full-stack e-commerce platform deployed to production (Angular,
+  TypeScript, Java, REST APIs, MySQL). Additionally, traveled to China on a
+  Mandarin language scholarship at XISU University (Xi'an International
+  Studies University), reinforcing cross-cultural skills and global perspective.

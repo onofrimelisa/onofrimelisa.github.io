@@ -1,0 +1,53 @@
+================================================================================
+EXPERIENCE #4 - MERCADO LIBRE
+================================================================================
+
+Company: Mercado Libre (MELI - NASDAQ listed, largest e-commerce and
+  fintech company in Latin America)
+Department: Platform Security 360 - Authorizations
+Period: February 2021 - July 2022 (1 year 6 months)
+Type: Full-time
+
+Roles:
+  1) Semi-Senior Software Engineer (March 2022 - July 2022) - Promoted
+  2) Software Development Analyst (February 2021 - March 2022)
+
+Description:
+  Part of the team responsible for revolutionizing the user authorization
+  system across all of Mercado Libre, designing a new authorization model
+  inspired by AWS IAM with policy-based access control. Internal clients
+  were other Mercado Libre engineering teams who integrated their services
+  with the authorization platform.
+
+  Two integration patterns were developed:
+  - SDKs in multiple languages (Java, Go, Python, Node.js) for direct
+    integration
+  - Sidecar deployment model using Docker, where the authorization service
+    ran alongside the consuming application in the same instance
+
+  Services had to be extremely performant, efficient, and error-free since
+  they were in the critical path of virtually every service across
+  Mercado Libre, impacting millions of users.
+
+Tech stack & tools:
+  - Backend: Java, Go
+  - SDKs: Java, Go, Python, Node.js
+  - Frontend: React
+  - Architecture: Microservices
+  - Databases: SQL and NoSQL
+  - Monitoring: Datadog, Kibana, NewRelic
+  - CI/CD: Jenkins, Gitflow
+  - Testing: Unit, Integration, and Stress tests
+  - Methodology: Scrum, JIRA
+  - Infrastructure: Docker (sidecar pattern)
+
+Key highlights:
+  - Promoted from Analyst to Semi-Senior Engineer within 1 year
+  - Built platform-level infrastructure used by every team at Mercado Libre
+  - AWS IAM-inspired policy-based authorization model
+  - High-traffic, mission-critical services impacting millions of users
+  - Multi-language SDK development (Java, Go, Python, Node.js)
+  - Sidecar deployment pattern with Docker
+  - On-call rotation for production incident response
+  - Stress testing and performance optimization at massive scale
+  - Internal clients: other MELI engineering teams

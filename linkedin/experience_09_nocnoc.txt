@@ -1,0 +1,21 @@
+================================================================================
+LINKEDIN - EXPERIENCE #9 (CURRENT)
+================================================================================
+
+Title: Senior Software Engineer
+Company: NocNoc
+Period: August 2025 - Present
+
+Highlight text:
+
+  Part of the Sellers team, building and maintaining the integration layer
+  that enables sellers to connect to NocNoc through multiple channels —
+  public API, Shopify, SFTP, and Seller Center.
+
+  Owned the Amazon Scraper service, a business-critical microservice
+  responsible for fetching and synchronizing product data from Amazon in
+  real time. This data directly drives sales performance and NocNoc's
+  reputation across marketplaces like Mercado Libre. Designed the service
+  around Amazon's API constraints, implementing distributed rate limiting
+  and resilience patterns to ensure reliable, high-throughput data
+  synchronization without violating throttling policies.

@@ -1,0 +1,20 @@
+================================================================================
+LINKEDIN - EXPERIENCE #6
+================================================================================
+
+Title: Semi-Senior Software Engineer
+Company: Emi Labs
+Period: August 2023 - April 2024
+
+Highlight text:
+
+  Part of the integrations team at Emi Labs, an AI-powered platform that
+  automates high-volume recruitment for enterprises like Walmart, Coca-Cola
+  FEMSA, and Heineken — processing over 12M conversations across 50+ clients.
+
+  Designed and built the integration layer enabling US and Mexico-based clients
+  to connect to Emi's ecosystem. Balanced delivering client-specific
+  customizations with developing a generic, scalable cross-client solution —
+  a key architectural challenge that required thoughtful API design and
+  maintainable abstractions to serve diverse enterprise requirements without
+  fragmenting the codebase.

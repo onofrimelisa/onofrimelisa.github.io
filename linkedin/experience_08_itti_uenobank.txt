@@ -1,0 +1,26 @@
+================================================================================
+LINKEDIN - EXPERIENCE #8
+================================================================================
+
+Title: Senior Software Engineer
+Company: itti (UenoBank)
+Period: October 2024 - Present
+
+Highlight text:
+
+  Building the Insurance Core platform from the ground up at Ueno Bank.
+  Architected and developed the Insurance Manager microservice from scratch —
+  the central orchestration engine for policy issuance that became the generic,
+  scalable foundation powering every insurance product launch (life, mobile,
+  commercial, and home insurance).
+
+  A key technical challenge was integrating our modern microservices architecture
+  with a legacy external provider. Designed resilient integration layers
+  applying patterns such as circuit breaker, asynchronous communication, and
+  retry strategies to ensure platform stability and reliability despite
+  upstream limitations.
+
+  Involved in the full lifecycle — architecture design, development, testing,
+  deployment, and production monitoring — delivering robust, provider-agnostic
+  abstractions that enabled the team to ship new insurance products faster with
+  each iteration.
