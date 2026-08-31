@@ -17,7 +17,7 @@
 
 // About
 #section[About Me]
-#descript[Senior Software Engineer with 5+ years of experience designing, building, and shipping production systems across fintech, e-commerce, and platform infrastructure. Specialized in backend development with a strong focus on microservices architecture, distributed systems, and third-party integrations. Experienced working with US-based clients and global teams. English proficiency: C1 Advanced (Cambridge CAE certified).]
+#descript[Senior Software Engineer with 6+ years of experience designing, building, and shipping production systems across fintech, e-commerce, and platform infrastructure. Specialized in backend development with a strong focus on microservices architecture, distributed systems, and third-party integrations. Experienced across both large-scale multinational product companies and fast-paced startups, as well as US-based client engagements. English proficiency: C1 Advanced (Cambridge CAE certified).]
 
 #sectionsep
 // Experience
@@ -29,9 +29,8 @@
   location: "Argentina",
   date: "Aug 2025 - Present",
   description: [
-    - Part of the Sellers team, building the integration layer enabling sellers to connect through multiple channels: public API, Shopify, SFTP, and Seller Center.
-    - Owned the Amazon Scraper service, a business-critical microservice for fetching and synchronizing product data from Amazon — directly driving sales performance and marketplace reputation.
-    - Designed distributed rate limiting to comply with Amazon API throttling policies while ensuring high-throughput data synchronization.
+    - Building the seller integration layer (public API, Shopify, SFTP, Seller Center).
+    - Owned the Amazon Scraper service — a business-critical microservice for product data synchronization, with distributed rate limiting to comply with Amazon API throttling policies.
   ],
 )
 
@@ -41,9 +40,9 @@
   location: "Argentina",
   date: "Oct 2024 - Aug 2025",
   description: [
-    - Built the Insurance Core platform from the ground up. Architected and developed the Insurance Manager microservice — the central orchestration engine for policy issuance.
-    - Created a generic, scalable foundation powering every insurance product launch (life, mobile, commercial, home insurance).
-    - Designed resilient integration layers with a legacy external provider using circuit breaker, async communication, and retry patterns.
+    - Architected and built the Insurance Manager microservice from scratch — the core policy issuance engine powering every insurance product (life, mobile, commercial, home).
+    - Designed resilient integrations with legacy external providers using circuit breaker, async communication, and retry patterns.
+    - Developed the backend of a mobile banking app, ensuring smooth user experience across critical processes like policy purchase, claims, and account management.
   ],
 )
 
@@ -53,9 +52,8 @@
   location: "Argentina",
   date: "Aug 2023 - Apr 2024",
   description: [
-    - Part of the integrations team at an AI-powered recruitment platform serving 50+ enterprise clients (Walmart, Coca-Cola FEMSA, Heineken) processing 12M+ conversations.
-    - Built the integration layer enabling US and Mexico-based clients to connect to Emi's ecosystem.
-    - Balanced client-specific customizations with developing a generic, scalable cross-client solution.
+    - Built the integration layer for US and Mexico clients at an AI-powered recruitment platform serving 50+ enterprises (Walmart, Coca-Cola FEMSA, Heineken) processing 12M+ conversations.
+    - Balanced client-specific customizations with a generic, scalable cross-client architecture.
   ],
 )
 
@@ -65,9 +63,8 @@
   location: "Argentina",
   date: "Jul 2022 - Aug 2023",
   description: [
-    - Worked in Kavak's fintech division (Capital), automating core banking processes — delivering directly profitable, high-impact solutions.
-    - Designed and built greenfield microservices across a polyglot stack: Go, Node.js (TypeScript), and Java 11+ with Spring Boot and Hibernate/JPA.
-    - Built full-stack solutions including backend services backed by PostgreSQL and an internal backoffice with Angular and NestJS.
+    - Automated core banking processes in Kavak's fintech division (Capital), building greenfield microservices in Go, Node.js (TypeScript), and Java (Spring Boot, Hibernate/JPA).
+    - Built backend services with PostgreSQL and an internal backoffice with Angular and NestJS.
   ],
 )
 
@@ -77,20 +74,8 @@
   location: "Argentina",
   date: "Feb 2021 - Jul 2022",
   description: [
-    - Designed and built core components of Mercado Libre's new authorization platform — an AWS IAM-inspired, policy-based access control system in the critical path of every application at MELI.
-    - Developed multi-language SDKs (Java, Go, Python, Node.js) and a Docker-based sidecar deployment model for internal engineering teams.
-    - Services handled massive traffic volumes impacting millions of users. On-call rotations for production incident response.
-  ],
-)
-
-#job(
-  position: "Fullstack Software Engineer",
-  institution: [Technisys],
-  location: "Argentina",
-  date: "Oct 2020 - Jan 2021",
-  description: [
-    - Worked in a globally distributed, multicultural team — the first at Technisys to deliver a project for a North American client.
-    - Contributed to adapting the company's core banking platform to meet US market requirements. All collaboration in English across multiple time zones.
+    - Built Mercado Libre's new AWS IAM-inspired authorization platform — a policy-based access control system in the critical path of every MELI application, impacting millions of users.
+    - Developed multi-language SDKs (Java, Go, Python, Node.js) and a Docker sidecar deployment model. On-call rotations for production incidents at massive scale.
   ],
 )
 
@@ -98,10 +83,10 @@
   position: "Engineering Associate",
   institution: [Southworks],
   location: "Argentina",
-  date: "Apr 2020 - Oct 2020",
+  date: "Apr 2020 - Jan 2021",
   description: [
-    - Built greenfield applications from scratch for Discovery Channel (US). All communication and Agile ceremonies in English.
-    - Microservices architecture, backend development with Node.js and TypeScript, infrastructure with Pulumi on AWS, CI/CD with CircleCI, monitoring with Datadog and CloudWatch.
+    - Built greenfield applications from scratch for Discovery Channel (US) using Node.js, TypeScript, and microservices architecture.
+    - Infrastructure provisioning with Pulumi on AWS, CI/CD with CircleCI, and production monitoring with Datadog and CloudWatch.
   ],
 )
 
@@ -111,9 +96,31 @@
   location: "Argentina",
   date: "2019 - 2020",
   description: [
-    - Independently designed and developed Zeppelin Pedidos (zeppelinok.com), a web application for a local delivery company.
-    - Owned the entire SDLC end-to-end. Built from scratch using Angular, TypeScript, and Firebase (Cloud Firestore, Realtime Database, Hosting, Auth).
+    - Designed and developed Zeppelin Pedidos (zeppelinok.com) end-to-end using Angular, TypeScript, and Firebase (Firestore, Auth, Hosting).
   ],
+)
+
+#sectionsep
+#section("Skills")
+#oneline-title-item(
+  title: "Languages & Frameworks",
+  content: [Java, Go, TypeScript/Node.js, Kotlin, Python, Angular, React],
+)
+#oneline-title-item(
+  title: "Cloud & Infra",
+  content: [AWS, Docker, Terraform, Pulumi, Argo CD, CircleCI, Jenkins],
+)
+#oneline-title-item(
+  title: "Databases",
+  content: [PostgreSQL, MySQL, NoSQL (Firestore, DynamoDB), Key-Value Store],
+)
+#oneline-title-item(
+  title: "Observability",
+  content: [Datadog, NewRelic, Grafana, Graylog, Kibana, AWS CloudWatch],
+)
+#oneline-title-item(
+  title: "Practices",
+  content: [Microservices, REST APIs, CI/CD, Scrum, Gitflow, TDD],
 )
 
 #sectionsep
