@@ -17,7 +17,7 @@
 
 // About
 #section[About Me]
-#descript[Senior Software Engineer with 6+ years of experience designing, building, and shipping production systems across fintech, e-commerce, and platform infrastructure. Specialized in backend development with a strong focus on microservices architecture, distributed systems, and third-party integrations. Experienced across both large-scale multinational product companies and fast-paced startups, as well as US-based client engagements. English proficiency: C1 Advanced (Cambridge CAE certified).]
+#descript[Senior Software Engineer with 6+ years of experience designing, building, and shipping production systems across fintech, e-commerce, and platform infrastructure. Specialized in backend development with a strong focus on microservices architecture, distributed systems, and third-party integrations. Experienced across both large-scale multinational product companies and fast-paced startups, as well as US-based client engagements. Proven ability to lead technical initiatives and coordinate with stakeholders and cross-functional teams. English proficiency: C1 Advanced (Cambridge CAE certified).]
 
 #sectionsep
 // Experience
@@ -29,8 +29,9 @@
   location: "Argentina",
   date: "Aug 2025 - Present",
   description: [
-    - Building the seller integration layer (public API, Shopify, SFTP, Seller Center).
-    - Owned the Amazon Scraper service — a business-critical microservice for product data synchronization, with distributed rate limiting to comply with Amazon API throttling policies.
+    - Developed and maintained the integrations that sellers use to connect to the NocNoc ecosystem (public API, Shopify, SFTP, Seller Center) — enabling product creation and updates, order registration, package generation, and more.
+    - Owned the Amazon Scraper service — a business-critical microservice for product data synchronization that directly drives sales performance and marketplace reputation. Implemented distributed rate limiting to comply with Amazon API throttling policies.
+    - Built the sellers-core service from the ground up — a centralized processing layer through which all seller operations are routed and validated, enabling unified metrics, alerting, and observability across the entire seller integration platform.
   ],
 )
 
@@ -40,7 +41,7 @@
   location: "Argentina",
   date: "Oct 2024 - Aug 2025",
   description: [
-    - Architected and built the Insurance Manager microservice from scratch — the core policy issuance engine powering every insurance product (life, mobile, commercial, home).
+    - Architected and built the Insurance Manager microservice — the core policy issuance engine powering every insurance product (life, mobile, commercial, home).
     - Designed resilient integrations with legacy external providers using circuit breaker, async communication, and retry patterns.
     - Developed the backend of a mobile banking app, ensuring smooth user experience across critical processes like policy purchase, claims, and account management.
   ],
@@ -53,7 +54,7 @@
   date: "Aug 2023 - Apr 2024",
   description: [
     - Built the integration layer for US and Mexico clients at an AI-powered recruitment platform serving 50+ enterprises (Walmart, Coca-Cola FEMSA, Heineken) processing 12M+ conversations.
-    - Balanced client-specific customizations with a generic, scalable cross-client architecture.
+    - Balanced client-specific customizations with a generic, scalable cross-client architecture — designing maintainable abstractions to serve diverse enterprise requirements without fragmenting the codebase.
   ],
 )
 
@@ -63,8 +64,8 @@
   location: "Argentina",
   date: "Jul 2022 - Aug 2023",
   description: [
-    - Automated core banking processes in Kavak's fintech division (Capital), building greenfield microservices in Go, Node.js (TypeScript), and Java (Spring Boot, Hibernate/JPA).
-    - Built backend services with PostgreSQL and an internal backoffice with Angular and NestJS.
+    - Automated core banking processes in Kavak's fintech division (Capital), replacing manual workflows with directly profitable, high-impact solutions. Built greenfield microservices in Go, Node.js (TypeScript), and Java (Spring Boot, Hibernate/JPA).
+    - Built backend services with PostgreSQL and an internal backoffice with Angular and NestJS. Observability with Datadog dashboards/alerts and CI/CD with Argo CD.
   ],
 )
 
@@ -75,7 +76,7 @@
   date: "Feb 2021 - Jul 2022",
   description: [
     - Built Mercado Libre's new AWS IAM-inspired authorization platform — a policy-based access control system in the critical path of every MELI application, impacting millions of users.
-    - Developed multi-language SDKs (Java, Go, Python, Node.js) and a Docker sidecar deployment model. On-call rotations for production incidents at massive scale.
+    - Developed multi-language SDKs (Java, Go, Python, Node.js) and a Docker sidecar deployment model. Rigorous stress testing to validate performance under real-world scale and on-call rotations for production incidents.
   ],
 )
 
@@ -85,26 +86,17 @@
   location: "Argentina",
   date: "Apr 2020 - Jan 2021",
   description: [
-    - Built greenfield applications from scratch for Discovery Channel (US) using Node.js, TypeScript, and microservices architecture.
-    - Infrastructure provisioning with Pulumi on AWS, CI/CD with CircleCI, and production monitoring with Datadog and CloudWatch.
+    - Built greenfield applications end-to-end for Discovery Channel (US) using Node.js, TypeScript, and microservices architecture.
+    - Infrastructure provisioning with Pulumi on AWS, CI/CD with CircleCI, and production monitoring with Datadog and CloudWatch. Earned AWS Certified Cloud Practitioner during this role.
   ],
 )
 
-#job(
-  position: "Freelance Software Developer",
-  institution: [Independent],
-  location: "Argentina",
-  date: "2019 - 2020",
-  description: [
-    - Designed and developed Zeppelin Pedidos (zeppelinok.com) end-to-end using Angular, TypeScript, and Firebase (Firestore, Auth, Hosting).
-  ],
-)
 
 #sectionsep
 #section("Skills")
 #oneline-title-item(
   title: "Languages & Frameworks",
-  content: [Java, Go, TypeScript/Node.js, Kotlin, Python, Angular, React],
+  content: [Java, Go, TypeScript/Node.js, Kotlin, Python, Angular, React, Flutter],
 )
 #oneline-title-item(
   title: "Cloud & Infra",
@@ -120,7 +112,7 @@
 )
 #oneline-title-item(
   title: "Practices",
-  content: [Microservices, REST APIs, CI/CD, Scrum, Gitflow, TDD],
+  content: [Microservices, REST APIs, CI/CD, SOLID, Design Patterns, Spec-Driven Development, Event-Driven Design, Scrum, Gitflow, TDD],
 )
 
 #sectionsep
