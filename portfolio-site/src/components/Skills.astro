@@ -1,0 +1,68 @@
+---
+import { siteConfig } from "../config";
+const enSkills = siteConfig.en.skills;
+const esSkills = siteConfig.es.skills;
+const enCategories = Object.entries(enSkills);
+const esCategories = Object.entries(esSkills);
+---
+
+<section id="skills" class="p-8 sm:p-12 md:p-16 lg:p-24">
+  <div>
+    <div class="grid grid-cols-1 2xl:grid-cols-12 gap-8 2xl:gap-16 items-start">
+      <div class="2xl:col-span-4">
+        <h2
+          class="text-2xl sm:text-3xl md:text-4xl 2xl:text-5xl font-bold text-gray-900"
+        >
+          <span data-lang-en>{siteConfig.en.skillsTitle}</span>
+          <span data-lang-es style="display:none">{siteConfig.es.skillsTitle}</span>
+        </h2>
+        <div
+          class="w-[75px] h-[5px] mt-2 rounded-full"
+          style={`background-color: ${siteConfig.accentColor}`}
+        >
+        </div>
+      </div>
+
+      <div class="2xl:col-span-8 space-y-6">
+        <div data-lang-en>
+          {enCategories.map(([category, skills]) => (
+            <div class="mb-5">
+              <h3
+                class="text-sm font-semibold uppercase tracking-wider mb-3"
+                style={`color: ${siteConfig.accentColor}`}
+              >
+                {category}
+              </h3>
+              <div class="flex flex-wrap gap-2">
+                {skills.map((skill: string) => (
+                  <span class="px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-100 text-gray-800 rounded-full text-sm sm:text-base font-medium hover:bg-gray-200 transition-colors duration-200">
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div data-lang-es style="display:none">
+          {esCategories.map(([category, skills]) => (
+            <div class="mb-5">
+              <h3
+                class="text-sm font-semibold uppercase tracking-wider mb-3"
+                style={`color: ${siteConfig.accentColor}`}
+              >
+                {category}
+              </h3>
+              <div class="flex flex-wrap gap-2">
+                {skills.map((skill: string) => (
+                  <span class="px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-100 text-gray-800 rounded-full text-sm sm:text-base font-medium hover:bg-gray-200 transition-colors duration-200">
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
