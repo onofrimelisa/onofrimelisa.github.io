@@ -1,7 +1,7 @@
 export const siteConfig = {
   name: "Melisa Onofri",
   accentColor: "#7c3aed",
-  cvPath: "/professional-profile/cv.pdf",
+  cvPath: "/cv.pdf",
   social: {
     email: "onofrimelisa@gmail.com",
     linkedin: "https://www.linkedin.com/in/onofrimelisa/",
