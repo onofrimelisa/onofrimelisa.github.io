@@ -11,6 +11,7 @@
   contacts: (
     (text: "+54 9 221 612 3419", link: "tel:+5492216123419"),
     (text: "LinkedIn", link: "https://www.linkedin.com/in/onofrimelisa/"),
+    (text: "Portfolio", link: "https://onofrimelisa.github.io"),
     (text: "onofrimelisa@gmail.com", link: "mailto:onofrimelisa@gmail.com"),
   ),
 )
