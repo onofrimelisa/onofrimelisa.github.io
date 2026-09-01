@@ -104,7 +104,7 @@
 )
 #oneline-title-item(
   title: "Databases",
-  content: [PostgreSQL, MySQL, NoSQL (Firestore, DynamoDB), Key-Value Store],
+  content: [PostgreSQL, MySQL, NoSQL (Firestore, DynamoDB), Key-Value Store, Cache],
 )
 #oneline-title-item(
   title: "Observability",
