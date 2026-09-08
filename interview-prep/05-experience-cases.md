@@ -58,6 +58,29 @@ Amazon Scraper ──┘
 - Monitoring and observability
 - Working with external APIs
 
+### Seller Center Bulk Upload — Fixing a Broken Product Creation Flow
+
+**Context:** The Seller Center bulk upload feature in NocNoc was completely broken. Every product uploaded via bulk was failing with a generic error, blocking sellers from listing new products — directly impacting their ability to generate sales.
+
+**The problem:** A downstream service was timing out during the bulk product creation flow. When the timeout hit, the entire bulk execution was cut short and all products in the batch failed with a single generic error message. Sellers had zero visibility into what went wrong with each individual product, making it impossible to fix and retry.
+
+**Diagnosis:** I traced the issue through the bulk upload pipeline and identified the root cause: a downstream service call was timing out under load. The bulk flow was processing products individually (one-by-one API calls), making redundant database queries and external service calls per product. On top of that, aggressive retry policies on those calls were amplifying the bottleneck — each failed call would retry multiple times, compounding the timeout cascade.
+
+**What I did:**
+- **Refactored the bulk creation flow** to batch downstream service calls instead of processing products individually, drastically reducing the number of external calls
+- **Eliminated redundant database queries** — consolidated lookups that were being repeated per product into single batch queries
+- **Removed aggressive retries** that were amplifying the bottleneck instead of helping — the retry storm was making the timeout problem worse
+- **Improved error feedback to sellers:** Instead of a single generic error for the entire batch, each product now gets its own specific error message explaining exactly what failed. Sellers can see which products succeeded, which failed, and why — then fix and retry only the failed ones
+
+**Result:** The bulk upload went from 100% failure rate to working reliably. Sellers gained granular visibility into product upload errors, dramatically improving their experience. The optimized flow also reduced processing time by cutting unnecessary calls to the database and external services.
+
+**Use this when asked about:**
+- Debugging production issues
+- Performance optimization with before/after impact
+- Improving user experience through better error handling
+- Refactoring for efficiency
+- Ownership and impact on business metrics
+
 ---
 
 ## UenoBank — Insurance Manager
@@ -231,11 +254,11 @@ Use these themes to connect your stories to common interview questions:
 
 | Theme | Stories to Reference |
 |-------|---------------------|
-| **Ownership** | NocNoc sellers-core (built from scratch), UenoBank Insurance Manager (architected the engine) |
+| **Ownership** | NocNoc sellers-core (built from scratch), NocNoc bulk upload fix (diagnosed and fixed broken flow), UenoBank Insurance Manager (architected the engine) |
 | **Scale** | Mercado Libre authorization platform (millions of users), NocNoc Amazon Scraper (distributed rate limiting) |
 | **Resilience** | UenoBank circuit breaker (real-world validation), NocNoc rate limiting (external API management) |
 | **Leadership without authority** | Kavak mentoring junior dev, UenoBank proposing async architecture to lead |
-| **Learning from failure** | Emi Labs over-engineering story, production incident post-mortem |
+| **Learning from failure** | Emi Labs over-engineering story, production incident post-mortem, NocNoc bulk upload (retry storm worsening timeouts) |
 | **Technical depth** | Multi-language SDKs at MeLi, distributed rate limiting at NocNoc, Saga pattern at UenoBank |
 | **Communication** | English from day one at Southworks, stakeholder updates during incidents, presenting technical proposals |
 
@@ -246,7 +269,7 @@ Use these themes to connect your stories to common interview questions:
 <!-- Add new cases here as you encounter new interview questions or remember relevant stories -->
 
 - [ ] Deep dive into NocNoc's full service architecture (all microservices and how they interact)
-- [ ] Specific performance optimization story with metrics (before/after)
+- [x] Specific performance optimization story with metrics (before/after) → Seller Center Bulk Upload case
 - [ ] Database migration or scaling story
 - [ ] A time you had to make a trade-off between speed and quality
 - [ ] A time you onboarded to a new codebase quickly
