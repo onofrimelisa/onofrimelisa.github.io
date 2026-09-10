@@ -6,13 +6,13 @@
 
 ## NocNoc — Seller Integration Platform
 
-### The Architecture
-
 **Context:** NocNoc is an e-commerce marketplace. Sellers need multiple ways to manage their products and orders: a public API, a Shopify integration, SFTP bulk uploads, a Seller Center UI, and an Amazon Scraper that imports product data from Amazon.
 
-**The problem:** Each integration channel was built independently, leading to duplicated validation logic, inconsistent error handling, and no unified observability across seller operations.
+**The problem:** Every time a seller had an issue, Account Managers couldn't resolve it — everything fell on the IT team, who had to troubleshoot from scratch by digging through logs across multiple services. There was zero observability, and we only found out about problems after they had already happened and impacted sellers. On top of that, each integration channel had been built independently with different technologies and different logic, resulting in duplicated validation, inconsistent error handling, and no unified view of seller operations.
 
-**What I built:** I designed and built **sellers-core** from the ground up — a centralized processing layer that all seller-facing services route through. Instead of each channel implementing its own validation, transformation, and persistence logic, they all call sellers-core as a single source of truth.
+**What I built:** I designed and built **sellers-core** from the ground up — a centralized processing layer that all seller-facing services route through. But before writing any code, I had to do a deep analysis of every existing integration: mapping out similarities, differences, technologies, and business logic across all channels. This was hard work — it meant dealing with legacy code from services that had been long forgotten, with no documentation and scattered ownership.
+
+During the migration to sellers-core, I deliberately avoided perpetuating dependencies on legacy services we wanted to retire — for example, a PHP monolith. The approach was to first build the modern services that would replace them, so that sellers-core could be born clean, without problematic dependencies. sellers-core also acts as an orchestrator for asynchronous flows like product creation, order creation, and inventory sync.
 
 **Architecture:**
 ```
@@ -25,89 +25,48 @@ Amazon Scraper ──┘
 
 **Key decisions:**
 - **Centralized validation:** All seller operations (create product, update price, sync inventory) go through sellers-core regardless of the source channel
-- **Unified observability:** Since everything routes through one service, I built a single dashboard for metrics, alerting, and debugging across the entire seller integration platform
+- **Unified observability:** Since everything routes through one service, I built dashboards, structured logging, and alerting across the entire seller integration platform
 - **Channel-agnostic processing:** sellers-core doesn't care where the request came from — it enforces the same business rules consistently
+- **Legacy retirement strategy:** Built replacement services first, then migrated flows to avoid perpetuating tech debt
 
-**Result:** Reduced duplicated logic across 5 integration channels, made debugging dramatically easier (one place to look), and enabled the team to add new channels without reimplementing core business logic.
+**Result:** We went from being purely reactive — finding out about problems only after sellers complained — to being proactive. With the alerting system we built, we now catch issues before they impact sellers. We differentiated between business alerts (for Account Managers, so they can self-serve common seller issues) and technical alerts (for the IT team, for infrastructure and system-level problems). This dramatically reduced the load on IT and empowered AMs to resolve seller issues independently.
 
 **Use this when asked about:**
 - System design / architecture decisions
 - Building something from scratch
 - Ownership and initiative
 - Reducing technical debt
-
-### Amazon Scraper — Distributed Rate Limiting
-
-**Context:** NocNoc's Amazon Scraper service imports product data from Amazon's API to help sellers list products. Amazon enforces strict API throttling policies.
-
-**The problem:** With multiple instances of the scraper running concurrently, we were hitting Amazon's rate limits and getting throttled, which caused data import failures and delays for sellers.
-
-**What I built:** Implemented a distributed rate limiting system using a token bucket algorithm shared across all scraper instances.
-
-**Technical details:**
-- Token bucket algorithm with a shared state across instances
-- Exponential backoff with jitter when throttled — prevents all instances from retrying at the same time
-- Monitoring dashboard showing real-time API usage vs. quota
-- Alerting when approaching rate limits, so we could proactively adjust before sellers experienced issues
-
-**Result:** Eliminated uncontrolled throttling, made the scraping process predictable and reliable, and gave the team visibility into API consumption patterns.
-
-**Use this when asked about:**
-- Rate limiting / throttling
-- Distributed systems challenges
-- Monitoring and observability
-- Working with external APIs
-
-### Seller Center Bulk Upload — Fixing a Broken Product Creation Flow
-
-**Context:** The Seller Center bulk upload feature in NocNoc was completely broken. Every product uploaded via bulk was failing with a generic error, blocking sellers from listing new products — directly impacting their ability to generate sales.
-
-**The problem:** A downstream service was timing out during the bulk product creation flow. When the timeout hit, the entire bulk execution was cut short and all products in the batch failed with a single generic error message. Sellers had zero visibility into what went wrong with each individual product, making it impossible to fix and retry.
-
-**Diagnosis:** I traced the issue through the bulk upload pipeline and identified the root cause: a downstream service call was timing out under load. The bulk flow was processing products individually (one-by-one API calls), making redundant database queries and external service calls per product. On top of that, aggressive retry policies on those calls were amplifying the bottleneck — each failed call would retry multiple times, compounding the timeout cascade.
-
-**What I did:**
-- **Refactored the bulk creation flow** to batch downstream service calls instead of processing products individually, drastically reducing the number of external calls
-- **Eliminated redundant database queries** — consolidated lookups that were being repeated per product into single batch queries
-- **Removed aggressive retries** that were amplifying the bottleneck instead of helping — the retry storm was making the timeout problem worse
-- **Improved error feedback to sellers:** Instead of a single generic error for the entire batch, each product now gets its own specific error message explaining exactly what failed. Sellers can see which products succeeded, which failed, and why — then fix and retry only the failed ones
-
-**Result:** The bulk upload went from 100% failure rate to working reliably. Sellers gained granular visibility into product upload errors, dramatically improving their experience. The optimized flow also reduced processing time by cutting unnecessary calls to the database and external services.
-
-**Use this when asked about:**
-- Debugging production issues
-- Performance optimization with before/after impact
-- Improving user experience through better error handling
-- Refactoring for efficiency
-- Ownership and impact on business metrics
+- Legacy migration strategy
+- Observability and monitoring
 
 ---
 
 ## UenoBank — Insurance Manager
 
-### Architecting the Insurance Engine
+### Policy Orchestrator
 
-**Context:** UenoBank (accessed via itti, the digital banking app) wanted to offer insurance products to its users — life insurance, home insurance, etc. Each insurance product involves integration with a different external provider, each with their own API, data formats, and reliability characteristics.
+**Context:** UenoBank (accessed via itti, the digital banking app) offered insurance products to its users — life insurance, home insurance, etc. I was working on the backend of the mobile app. When I joined, the policy issuance flow already existed but it was a direct synchronous integration with the external provider — the user had to wait many seconds for the issuance to complete, resulting in a terrible experience where users would frequently abandon the flow and never complete the purchase.
 
-**The problem:** Build the core policy issuance engine that would power all insurance products. It needed to handle multiple external providers, each with different interfaces and varying reliability, while maintaining a consistent user experience.
+**The problem:** The synchronous issuance flow was slow and unreliable, directly hurting conversion. Users had no visibility into the status of their policies, and the company was buried in operational queries from users asking "did my policy go through?" Each insurance provider had a different API, data formats, and reliability characteristics, but there was no abstraction layer — everything was tightly coupled.
 
-**What I built:** The **Insurance Manager** — the central microservice responsible for the entire policy lifecycle: quoting, issuance, renewal, and cancellation.
+**What I built:** The **Policy Orchestrator** — the service responsible for managing all transactional flows related to policies: issuance, renewal, and cancellation.
 
 **Key technical decisions:**
-- **Strategy pattern for providers:** Each external insurance provider is implemented behind a common interface. Adding a new provider means implementing the interface, not modifying the core engine.
-- **Async for non-critical operations:** Policy issuance verification is synchronous (user needs immediate feedback), but notifications to external providers and downstream systems are asynchronous via message queues.
-- **Circuit breaker on external calls:** When an external provider is down, the circuit opens and we gracefully degrade — showing cached data or informing the user — instead of cascading failures through the entire banking app.
-- **Retry with exponential backoff:** For transient failures on external provider calls, with a dead-letter queue for messages that fail after N retries.
+- **Async issuance flow:** Moved the issuance from synchronous to asynchronous — the user gets immediate feedback and can track the status of their policy in real time, instead of staring at a loading screen for seconds
+- **Strategy pattern for providers:** Each external insurance provider is implemented behind a common interface. Adding a new provider means implementing the interface, not modifying the core engine
+- **Circuit breaker on external calls:** When an external provider is down, the circuit opens and we gracefully degrade instead of cascading failures through the entire banking app
+- **Retry with exponential backoff:** For transient failures on external provider calls, with a dead-letter queue for messages that fail after N retries
 
 **Real-world validation:** Weeks after launch, one of the external insurance providers had significant downtime. Because of the circuit breaker and async patterns, our users saw graceful degradation instead of errors. The system handled it exactly as designed.
 
-**Result:** Successfully launched multiple insurance products. The architecture proved resilient under real-world failure conditions and made it straightforward to onboard new insurance providers.
+**Result:** The number of issued policies increased directly as a result of the improved flow — users stopped abandoning the process. Users gained 100% visibility into the status of their policies, which drastically reduced operational queries to the company. The provider-agnostic architecture made it trivial for the business to launch new insurance products, since the base was the same for all policies. UenoBank became the first Paraguayan bank capable of offering a fully digital insurance experience.
 
 **Use this when asked about:**
 - Resilience patterns (circuit breaker, retry, DLQ)
 - Integration with external/legacy systems
 - Architecture decisions and trade-offs
 - Designing for failure
+- Business impact through technical decisions
 
 ### Securities Trading Platform Design (Interview Challenge)
 
@@ -254,12 +213,12 @@ Use these themes to connect your stories to common interview questions:
 
 | Theme | Stories to Reference |
 |-------|---------------------|
-| **Ownership** | NocNoc sellers-core (built from scratch), NocNoc bulk upload fix (diagnosed and fixed broken flow), UenoBank Insurance Manager (architected the engine) |
-| **Scale** | Mercado Libre authorization platform (millions of users), NocNoc Amazon Scraper (distributed rate limiting) |
-| **Resilience** | UenoBank circuit breaker (real-world validation), NocNoc rate limiting (external API management) |
+| **Ownership** | NocNoc sellers-core (built from scratch, legacy migration), UenoBank Insurance Manager (architected the engine) |
+| **Scale** | Mercado Libre authorization platform (millions of users) |
+| **Resilience** | UenoBank circuit breaker (real-world validation) |
 | **Leadership without authority** | Kavak mentoring junior dev, UenoBank proposing async architecture to lead |
-| **Learning from failure** | Emi Labs over-engineering story, production incident post-mortem, NocNoc bulk upload (retry storm worsening timeouts) |
-| **Technical depth** | Multi-language SDKs at MeLi, distributed rate limiting at NocNoc, Saga pattern at UenoBank |
+| **Learning from failure** | Emi Labs over-engineering story, production incident post-mortem |
+| **Technical depth** | Multi-language SDKs at MeLi, legacy migration + async orchestration at NocNoc, Saga pattern at UenoBank |
 | **Communication** | English from day one at Southworks, stakeholder updates during incidents, presenting technical proposals |
 
 ---
