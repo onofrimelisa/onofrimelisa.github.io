@@ -151,6 +151,58 @@ Each microservice owns its data. No shared databases. Communication via APIs or 
 
 ---
 
+## Rate Limiting, Throttling & Backpressure
+
+### Rate Limiting
+Controlar cuántas requests se permiten en un período de tiempo. Protege servicios de sobrecarga y APIs externas de exceder sus cuotas.
+
+**Algoritmos principales:**
+- **Token Bucket:** Un bucket se llena con tokens a un rate fijo. Cada request consume un token. Si no hay tokens, se rechaza. Permite bursts cortos (el bucket puede acumular tokens).
+- **Leaky Bucket:** Las requests entran a un buffer y salen a un rate fijo. Suaviza los picos — no permite bursts. Como un embudo.
+- **Sliding Window:** Cuenta requests en una ventana de tiempo deslizante. Más preciso que ventanas fijas, evita el problema del boundary entre ventanas.
+
+### Rate Limiter Distribuido
+Cuando tenés múltiples instancias de un servicio, el rate limit debe ser compartido. Un rate limiter local (por instancia) no alcanza: si tenés 5 instancias y el límite es 10 req/s, cada una permitiría 10 → 50 totales.
+
+**Implementación con Redis (Redisson):** Usar Redis como store centralizado del contador/token bucket. Redisson provee `RRateLimiter` que implementa token bucket distribuido con operaciones atómicas en Redis.
+
+**Trade-off:** Agrega latencia de red (call a Redis por cada request). Para hot paths, considerar rate limiting local como primera línea + distribuido como segunda.
+
+**My experience:** Usado en NocNoc para respetar el rate limit de 10 req/s de la API de Amazon (AMZ wrapper con Redisson).
+
+### Throttling vs Rate Limiting
+- **Rate Limiting:** Rechaza requests que exceden el límite (responde 429 Too Many Requests).
+- **Throttling:** Ralentiza las requests en lugar de rechazarlas — las encola o las demora. Más amigable con el caller.
+
+### Pull-Based Rate Control con SQS
+Cuando un rate limiter reactivo genera muchos 429 y retries (thundering herd), una alternativa es invertir el modelo: en vez de push + reject, usar una cola SQS donde el consumer controla cuántos mensajes procesa en paralelo.
+
+**Ventajas sobre rate limiter reactivo:**
+- No hay 429: el rate limit se respeta por diseño (controlando concurrencia del consumer)
+- Absorbe picos: la cola actúa como buffer natural
+- Sin thundering herd: no hay retries compitiendo por el mismo recurso
+
+**My experience:** Evolución de la integración con Amazon en NocNoc — migramos de rate limiter distribuido (que seguía generando 429 en picos) a un modelo pull-based con SQS y concurrencia controlada.
+
+### Exponential Backoff con Jitter
+Estrategia de retry donde el tiempo entre reintentos crece exponencialmente: 1s, 2s, 4s, 8s, etc. **El jitter es clave:** agrega un componente aleatorio al delay para evitar que múltiples clientes reintenten al mismo tiempo (thundering herd).
+
+```
+delay = min(base * 2^attempt + random(0, base), max_delay)
+```
+
+Sin jitter, si 100 clientes fallan al mismo tiempo, los 100 reintentan a los 2s, luego a los 4s — el problema se repite. Con jitter, se distribuyen naturalmente.
+
+### Thundering Herd Problem
+Ocurre cuando muchos clientes/procesos intentan acceder al mismo recurso simultáneamente, típicamente después de una caída o cuando un rate limiter rechaza requests en masa y todos reintentan juntos.
+
+**Soluciones:**
+- Exponential backoff con jitter (distribuir retries en el tiempo)
+- Pull-based consumption (invertir el modelo, el consumer controla el ritmo)
+- Request coalescing (agrupar requests duplicadas al mismo recurso)
+
+---
+
 ## Messaging & Events
 
 ### Apache Kafka
@@ -159,7 +211,7 @@ Distributed streaming platform. High throughput, fault tolerance, horizontal sca
 ### Key Concepts
 - **At-least-once vs exactly-once delivery:** Most systems guarantee at-least-once. Design for idempotency.
 - **Dead-letter queue (DLQ):** Where messages go when they can't be processed after N retries
-- **Backpressure:** When a consumer can't keep up with the producer. Handle with buffering, scaling consumers, or dropping messages.
+- **Backpressure:** When a consumer can't keep up with the producer. Handle with buffering, scaling consumers, or dropping messages. Related: see "Rate Limiting, Throttling & Backpressure" section for pull-based rate control patterns.
 
 ---
 

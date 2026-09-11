@@ -20,7 +20,7 @@
 **Real example (NocNoc seller platform):**
 - Seller-facing services: Public API, Shopify integration, SFTP, Seller Center
 - Central processing: sellers-core routes and validates all seller operations
-- Data sync: Amazon Scraper with distributed rate limiting
+- Data sync: Amazon Scraper with pull-based rate control (SQS + concurrency-limited consumers)
 - Observability: Unified metrics and alerting across the entire integration platform
 
 ### How do you handle communication between microservices?
@@ -51,10 +51,12 @@
 ### How do you handle API rate limiting?
 
 **Real example (NocNoc Amazon Scraper):**
-- Amazon API has strict throttling policies
-- Implemented distributed rate limiting — token bucket algorithm shared across instances
-- Backoff strategy when throttled — exponential with jitter
-- Monitoring: alert when approaching rate limits, dashboard showing API usage vs. quota
+- Amazon API has strict throttling policies (10 req/s)
+- Initially implemented distributed rate limiting (Redisson/Redis token bucket shared across instances), but burst traffic still caused 429s due to thundering herd on retries
+- Evolved to pull-based rate control: product-information enqueues requests in SQS, amz-wrapper consumes with concurrency-limited consumers — rate limit respected by design, no 429s
+- Redis rate limiter kept as safety net, cache-aside for recurring products
+- Exponential backoff with jitter only for transient Amazon errors, not for self-throttling
+- Monitoring: queue depth alerts, dashboard showing API usage vs. quota
 
 ---
 

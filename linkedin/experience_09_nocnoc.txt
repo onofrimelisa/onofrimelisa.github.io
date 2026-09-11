@@ -16,6 +16,6 @@ Highlight text:
   responsible for fetching and synchronizing product data from Amazon in
   real time. This data directly drives sales performance and NocNoc's
   reputation across marketplaces like Mercado Libre. Designed the service
-  around Amazon's API constraints, implementing distributed rate limiting
-  and resilience patterns to ensure reliable, high-throughput data
-  synchronization without violating throttling policies.
+  around Amazon's API constraints, implementing pull-based rate control
+  with SQS and concurrency-limited consumers to ensure reliable,
+  high-throughput data synchronization without violating throttling policies.

@@ -72,7 +72,7 @@ export const siteConfig = {
         dateRange: "Aug 2025 - Present",
         bullets: [
           "Developed and maintained the integrations that sellers use to connect to the NocNoc ecosystem (public API, Shopify, SFTP, Seller Center) — enabling product creation and updates, order registration, package generation, and more.",
-          "Owned the Amazon Scraper service — a business-critical microservice for product data synchronization that directly drives sales performance and marketplace reputation. Implemented distributed rate limiting to comply with Amazon API throttling policies.",
+          "Owned the Amazon Scraper service — a business-critical microservice for product data synchronization that directly drives sales performance and marketplace reputation. Designed pull-based rate control with SQS and concurrency-limited consumers to comply with Amazon API throttling policies.",
           "Built the sellers-core service from the ground up — a centralized processing layer through which all seller operations are routed and validated, enabling unified metrics, alerting, and observability across the entire seller integration platform.",
         ],
       },

@@ -19,14 +19,14 @@ Description:
   This data directly impacted sales performance and NocNoc's reputation
   across the marketplaces where it sells (e.g., Mercado Libre). The
   service required careful adherence to Amazon's API guidelines, including
-  implementing distributed rate limiting to comply with throttling
-  policies.
+  designing pull-based rate control with SQS and concurrency-limited
+  consumers to comply with throttling policies.
 
 Tech stack & tools:
   - Backend: TypeScript, Java
   - Cloud: AWS
   - Architecture: Microservices
-  - Design patterns, distributed rate limiting
+  - Design patterns, pull-based rate control (SQS), distributed rate limiting (Redis)
   - Integrations: Amazon API, Shopify, SFTP, public REST API
 
 Key highlights:
@@ -35,6 +35,6 @@ Key highlights:
     Seller Center)
   - Owned critical Amazon Scraper service tied directly to revenue and
     marketplace reputation
-  - Distributed rate limiting to comply with Amazon API constraints
+  - Pull-based rate control with SQS to comply with Amazon API constraints
   - Microservices architecture with design patterns
   - Cross-platform data synchronization (Amazon -> NocNoc -> Mercado Libre)

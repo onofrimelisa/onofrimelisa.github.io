@@ -28,7 +28,7 @@
   location: "Argentina",
   date: "Aug 2025 - Present",
   description: [
-    - Building seller integration layer (public API, Shopify, SFTP, Seller Center). Owned the Amazon Scraper service — a business-critical microservice for product data synchronization with distributed rate limiting.
+    - Building seller integration layer (public API, Shopify, SFTP, Seller Center). Owned the Amazon Scraper service — a business-critical microservice for product data synchronization with pull-based rate control (SQS + concurrency-limited consumers).
   ],
 )
 
