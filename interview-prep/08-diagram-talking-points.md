@@ -1,16 +1,16 @@
 # Diagram Talking Points
 
-> Guía para entrevistas técnicas de system design. Cada sección acompaña un diagrama del archivo `07-experience-cases-diagrams.drawio` y detalla qué mencionar, qué patrones destacar, y cómo responder preguntas de follow-up.
+> Guide for system design technical interviews. Each section accompanies a diagram from `07-experience-cases-diagrams.drawio` and details what to mention, which patterns to highlight, and how to answer follow-up questions.
 
 ---
 
 ## NocNoc — Product Creation Flow (sellers-core)
 
-### Contexto para el entrevistador
+### Context for the interviewer
 
-"De todos los flujos que maneja sellers-core (creación de productos, órdenes, inventario), voy a enfocarme en la creación de productos porque es el que tiene más complejidad arquitectónica: múltiples canales de entrada, procesamiento asíncrono, integración con un API externo con rate limit, y una máquina de estados para trackear el ciclo de vida."
+"Of all the flows that sellers-core handles (product creation, orders, inventory), I'll focus on product creation because it has the most architectural complexity: multiple input channels, asynchronous processing, integration with an external API with rate limits, and a state machine to track the lifecycle."
 
-### Flujo end-to-end
+### End-to-end flow
 
 ```
 Seller
@@ -30,152 +30,231 @@ Seller
 
 ### 1. Adapter Pattern (Ports & Adapters / Hexagonal Architecture)
 
-**Qué decir:** "Cada canal de integración es un adapter que traduce la interfaz específica del canal a las operaciones canónicas de sellers-core. La Public API traduce REST requests, Seller Center traduce acciones de UI, SFTP parsea archivos CSV/Excel, y Shopify traduce webhooks. Sellers-core define los ports (la interfaz del dominio) y los adapters implementan la traducción."
+**What to say:** "Each integration channel is an adapter that translates the channel-specific interface into sellers-core's canonical operations. Public API translates REST requests, Seller Center translates UI actions, SFTP parses CSV/Excel files, and Shopify translates webhooks. Sellers-core defines the ports (the domain interface) and the adapters implement the translation."
 
-**Por qué importa:**
-- Si mañana agregamos un nuevo canal (ej: integración con WooCommerce), implementamos un adapter nuevo sin tocar sellers-core
-- La lógica de negocio (validación, máquina de estados, reglas) vive en un solo lugar
-- Antes de sellers-core, cada canal tenía su propia validación y lógica — duplicada e inconsistente
+**Why it matters:**
+- If tomorrow we add a new channel (e.g., WooCommerce integration), we implement a new adapter without touching sellers-core
+- Business logic (validation, state machine, rules) lives in a single place
+- Before sellers-core, each channel had its own validation and logic — duplicated and inconsistent
 
-**Pregunta de follow-up probable:** "¿Qué diferencias hay entre los adapters?"
-- Public API: el seller manda productos uno a uno vía REST, respuesta síncrona con el estado del intento
-- Seller Center: la web app llama al seller center api, que actúa como BFF y traduce a sellers-core
-- SFTP: el seller sube un archivo, un proceso batch lo parsea y genera N requests a sellers-core
-- Shopify: la app de Shopify escucha webhooks de productos y los traduce a sellers-core
+**Likely follow-up question:** "What are the differences between adapters?"
+- Public API: the seller sends products one by one via REST, synchronous response with the attempt status
+- Seller Center: the web app calls the seller center API, which acts as a BFF and translates to sellers-core
+- SFTP: the seller uploads a file, a batch process parses it and generates N requests to sellers-core
+- Shopify: the Shopify app listens for product webhooks and translates them to sellers-core
 
-### 2. Comunicación asíncrona en dos niveles
+**Evolution: API Gateway in front of the adapters**
 
-**Qué decir:** "Tenemos dos colas SQS en el flujo, y cada una resuelve un problema distinto."
+**What to say:** "One improvement I'd add if we were to evolve this is an API Gateway in front of all the adapters. Right now each adapter handles its own auth, rate limiting, and routing. An API Gateway centralizes those cross-cutting concerns."
 
-**Primera cola: sellers-core → product-information**
-- **Problema:** Desacoplar el canal del seller del procesamiento. El seller necesita respuesta inmediata ("tu producto fue recibido, está en estado PENDING"), no puede quedarse esperando a que Amazon resuelva.
-- **Beneficio adicional:** Si product-information se cae, los mensajes persisten en la cola. Sellers-core no se ve afectado.
-- **Burst absorption:** Un seller sube 5000 productos por SFTP — sellers-core los encola sin saturar product-information.
-- **DLQ:** Los mensajes que fallan después de N reintentos van a la DLQ para análisis posterior. No se pierden.
+**Benefits:**
+- **Centralized authentication/authorization:** All adapters validate tokens against the same policy rather than each implementing their own auth logic
+- **Edge rate limiting:** Throttle bad actors or runaway sellers before the request even hits the adapter — protects the whole system
+- **Single entry point for observability:** Request volume, error rates, and latencies aggregated in one place rather than scattered across adapters
+- **Routing and versioning:** A new adapter version can be deployed behind a feature flag at the gateway level without coordinating across services
+- **Security:** TLS termination, IP allowlisting, and payload validation centralized
 
-**Segunda cola: product-information → amz-wrapper**
-- **Problema:** Controlar la tasa de requests hacia Amazon. Amazon tiene un rate limit de 10 req/s.
-- **Diseño pull-based:** amz-wrapper consume de la cola con concurrencia controlada (max N consumers), garantizando que nunca se exceda el rate limit por diseño.
-- **Evolución:** Originalmente product-information llamaba a amz-wrapper síncronamente, con un rate limiter distribuido (Redisson) en amz-wrapper. Pero en picos seguíamos teniendo 429 por thundering herd en los retries. Migramos a un modelo pull-based donde la cola absorbe los picos y el consumer controla la concurrencia.
+**Why I didn't do it initially:** Each adapter had very different semantics (REST vs webhook vs batch), so the effort of abstracting common behavior behind a gateway wasn't justified with the team size and timeline. With more adapters it becomes obvious payoff.
 
-**Pregunta de follow-up probable:** "¿No alcanzaba con una sola cola?"
-- "No, porque son dos bottlenecks distintos. La primera cola absorbe la variabilidad de los sellers (picos de carga impredecibles). La segunda controla la restricción de un servicio externo (Amazon rate limit). Si usáramos una sola cola, tendríamos que elegir entre optimizar para throughput de sellers o para el rate limit de Amazon — y son dos restricciones independientes."
+### 2. Saga Pattern — Distributed coordination in sellers-core
 
-### 3. Rate Limiting y la evolución de la solución
+**What to say:** "When sellers-core processes a product creation, it can't do it in a single DB transaction — it needs to coordinate with N internal services: validate the seller's permissions, fetch category mappings, check pricing rules, update inventory references. Since these are distributed calls, we can't wrap them in a single ACID transaction. That's where the Saga pattern comes in."
 
-**Qué decir (storytelling de mejora iterativa):**
+**How it works in practice:**
+- Sellers-core acts as the saga orchestrator
+- Each step is a local transaction + a call to a downstream service
+- If any step fails, sellers-core executes compensating transactions for the steps that already succeeded
+- The state machine (PENDING → SUCCESS / FAILED / NEEDS_INFO / ERROR) represents the saga's progress
 
-"Nuestra cuenta de Amazon tiene un rate limit de 10 req/s. La primera solución fue un rate limiter distribuido con Redisson en amz-wrapper, que rechazaba requests excedentes con 429. Product-information hacía retry con exponential backoff. Pero identificamos un problema: en picos de carga, múltiples instancias de product-information hacían retry simultáneamente, generando thundering herd. Los 429 se multiplicaban y el throughput real caía por debajo del rate limit."
+**Why it matters:**
+- Without saga, a partial failure leaves the system in an inconsistent state — product data in one service, nothing in another
+- Compensating transactions give us "eventual consistency with rollback" — not ACID, but correct
+- The saga state is persisted in RDS, so if sellers-core crashes mid-flight, it can resume or compensate on restart
 
-"La solución fue invertir el modelo: en vez de push con rate limiting reactivo, pasamos a pull con concurrency control. Product-information encola en SQS, y amz-wrapper consume con un máximo de consumers que respetan el rate limit. El rate limiter con Redisson se mantiene como safety net, pero en operación normal nunca se activa."
+**Choreography vs Orchestration:**
+- We chose **orchestration** (sellers-core is the explicit orchestrator) because the flow is complex enough that implicit choreography via events would be hard to trace and debug
+- Orchestration gives us a single source of truth for the saga's current state
 
-**Patrones a mencionar:**
-- Rate limiter distribuido (Redisson/Redis) — solución inicial
-- Thundering herd problem — por qué la solución inicial no alcanzaba
-- Pull-based consumption con concurrency control — solución mejorada
-- Cache-aside en Redis para productos recurrentes — reduce las llamadas a Amazon
+**Likely follow-up question:** "What happens if a compensating transaction also fails?"
+→ "That's the hard case. We have a DLQ for the saga events and an alert. The product ends up in ERROR state, which triggers a manual review. In practice this is extremely rare — compensating transactions are usually simpler operations (e.g., delete what was created) and they're idempotent."
 
-**Pregunta de follow-up probable:** "¿Cómo responde product-information si amz-wrapper es ahora async?"
-- amz-wrapper procesa el mensaje y notifica el resultado (vía SQS de respuesta o callback). Product-information actualiza su DB y sellers-core es notificado del cambio de estado del producto.
+### 2b. Outbox Pattern — Atomicity between DB and SQS
 
-### 4. Máquina de estados del producto
+**What to say:** "There's a subtle consistency problem when sellers-core finishes processing and needs to both update its DB and publish a message to SQS. If we do them sequentially — write DB, then publish SQS — we have a window where the DB write succeeds but the SQS publish fails. The product looks finished in our DB but nothing was sent downstream. The Outbox pattern solves this."
 
-**Qué decir:** "Cada intento de creación de producto tiene un ciclo de vida representado como una máquina de estados en la DB relacional de sellers-core."
+**How it works:**
+1. Sellers-core writes to its RDS **and** writes an outbox event record — both in the **same DB transaction**
+2. A separate outbox reader process polls the outbox table and publishes pending events to SQS
+3. Once published, the outbox event is marked as delivered
+
+**Why it matters:**
+- The DB write and the "intent to publish" are now atomic — if the transaction commits, the outbox record exists; if it rolls back, nothing happened
+- The outbox reader can retry publishing independently without any business logic involved
+- Guarantees at-least-once delivery to SQS (combined with idempotent consumers downstream, this is effectively exactly-once)
+
+**Likely follow-up question:** "Why not use a distributed transaction (2PC) between the DB and SQS?"
+→ "SQS doesn't support 2PC. Even if it did, distributed transactions have serious performance and availability trade-offs — they require both participants to be available simultaneously. The Outbox pattern achieves the same atomicity guarantee with local transactions only."
+
+### 3. Two-level asynchronous communication
+
+**What to say:** "We have two SQS queues in the flow, and each one solves a different problem."
+
+**First queue: sellers-core → product-information**
+- **Problem:** Decouple the seller channel from processing. The seller needs an immediate response ("your product was received, it's in PENDING status"), they can't wait for Amazon to resolve.
+- **Additional benefit:** If product-information goes down, messages persist in the queue. Sellers-core is unaffected.
+- **Burst absorption:** A seller uploads 5000 products via SFTP — sellers-core enqueues them without overwhelming product-information.
+- **DLQ:** Messages that fail after N retries go to the DLQ for later analysis. Nothing is lost.
+
+**Second queue: product-information → amz-wrapper**
+- **Problem:** Control the request rate to Amazon. Amazon has a rate limit of 10 req/s.
+- **Pull-based design:** amz-wrapper consumes from the queue with controlled concurrency (max N consumers), ensuring the rate limit is never exceeded by design.
+- **Evolution:** Originally product-information called amz-wrapper synchronously, with a distributed rate limiter (Redisson) in amz-wrapper. But during spikes we kept getting 429s due to thundering herd on retries. We migrated to a pull-based model where the queue absorbs spikes and the consumer controls concurrency.
+
+**Likely follow-up question:** "Wouldn't a single queue be enough?"
+- "No, because they address two different bottlenecks. The first queue absorbs seller variability (unpredictable load spikes). The second controls an external service constraint (Amazon rate limit). With a single queue, we'd have to choose between optimizing for seller throughput or for Amazon's rate limit — and those are two independent constraints."
+
+### 4. Rate limiting and the evolution of the solution
+
+**What to say (iterative improvement storytelling):**
+
+"Our Amazon account has a rate limit of 10 req/s. The first solution was a distributed rate limiter with Redisson in amz-wrapper, which rejected excess requests with 429. Product-information retried with exponential backoff. But we identified a problem: during load spikes, multiple product-information instances retried simultaneously, causing thundering herd. The 429s multiplied and actual throughput dropped below the rate limit."
+
+"The solution was to invert the model: instead of push with reactive rate limiting, we switched to pull with concurrency control. Product-information enqueues in SQS, and amz-wrapper consumes with a maximum number of consumers that respect the rate limit. The Redisson rate limiter is kept as a safety net, but in normal operation it never activates."
+
+**Redisson + concurrent SQS consumption — how they work together:**
+- amz-wrapper runs with exactly **N concurrent SQS consumers** (e.g., 10), one per allowed Amazon req/s
+- Each consumer polls the queue, acquires a Redisson rate limiter token, then calls Amazon
+- If somehow multiple consumers fire simultaneously and the token bucket is empty, Redisson blocks the call — it's the hard stop before Amazon is touched
+- This is far more efficient than exponential backoff retries: we never make an Amazon call we know will get 429'd
+- The SQS visibility timeout is tuned to exceed processing time, preventing redelivery while a message is in flight
+
+**Likely follow-up question:** "How does product-information get responses if amz-wrapper is now async?"
+→ amz-wrapper writes the result to the response SQS queue. Product-information consumes it and updates the product's state. Sellers-core is notified via the product creation response queue.
+
+**Likely follow-up question:** "What if the rate limit changes? Amazon raises it to 20 req/s?"
+→ "Update the consumer count and the Redisson token bucket size — it's pure configuration. No code change."
+
+### 5. Circuit Breaker — Resilience when Amazon is down
+
+**What to say:** "Rate limiting handles steady-state load, but what if Amazon is fully unavailable — not slow, completely down? Without a circuit breaker, amz-wrapper keeps pulling from SQS and immediately failing, burning CPU and resetting visibility timeouts in a tight loop. The circuit breaker stops that."
+
+**States:**
+- **CLOSED (normal):** Calls go through. Failures are counted.
+- **OPEN (Amazon down):** After N consecutive failures, the circuit opens. amz-wrapper stops pulling from the queue (or pulls and rejects immediately without calling Amazon). Messages sit safely in SQS with no retries wasting resources.
+- **HALF-OPEN (testing recovery):** After a cooldown, one probe request goes through. Success closes the circuit; failure reopens it.
+
+**Why it pairs well with the queue:**
+- The queue is the buffer — it holds messages while Amazon is down without losing them
+- The circuit breaker is the protector — it prevents amz-wrapper from hammering a dead API and avoids exhausting message retries into the DLQ
+- When Amazon recovers, the circuit closes and the backlog drains naturally while the rate limiter keeps us within quota
+
+**Where it lives:** At the amz-wrapper → Amazon boundary, not earlier. Product-information doesn't need to know Amazon is down — it just enqueues and moves on. The circuit breaker is amz-wrapper's responsibility.
+
+**Likely follow-up question:** "Wouldn't the DLQ handle the outage?"
+→ "DLQ is the last resort when retries are exhausted. If Amazon is down for 30 minutes and messages keep retrying every 30s, they'd hit max retries in about 15 minutes and flood the DLQ — requiring manual reprocessing. With the circuit breaker, messages stay in the main queue and drain automatically when Amazon recovers. DLQ stays clean for genuine failures."
+
+### 7. Product state machine
+
+**What to say:** "Each product creation attempt has a lifecycle represented as a state machine in sellers-core's relational DB."
 
 ```
 PENDING → SUCCESS
-PENDING → NEEDS_INFO (faltan datos requeridos)
-PENDING → FAILED (falló la creación en product-information)
-PENDING → ERROR (error técnico, se puede reintentar)
+PENDING → NEEDS_INFO (missing required data)
+PENDING → FAILED (creation failed in product-information)
+PENDING → ERROR (technical error, can be retried)
 ```
 
-**Por qué importa:**
-- Los Account Managers pueden ver el estado de cada producto en sus dashboards sin escalar a IT
-- El seller puede ver el estado en Seller Center
-- Las alertas se configuran sobre transiciones de estado (ej: si % de ERROR sube, alerta técnica)
+**Why it matters:**
+- Account Managers can see each product's status in their dashboards without escalating to IT
+- The seller can see the status in Seller Center
+- Alerts are configured on state transitions (e.g., if ERROR % spikes, technical alert fires)
 
-### 5. Correlation ID — Trazabilidad end-to-end
+### 8. Correlation ID — End-to-end traceability
 
-**Qué decir:** "El correlation ID nace en el adapter, no en sellers-core, porque el adapter es el boundary del sistema."
+**What to say:** "The correlation ID is born in the adapter, not in sellers-core, because the adapter is the system boundary."
 
-**Cómo se propaga:**
-1. **Adapter** genera el correlation ID (UUID) al recibir el request del seller
-2. Se envía como **HTTP header** a sellers-core
-3. Sellers-core lo guarda en la DB junto al intento de creación
-4. Se propaga como **SQS message attribute** a product-information
-5. Product-information lo propaga a amz-wrapper (por la segunda SQS)
-6. Todos los logs de todos los servicios incluyen el correlation ID
+**How it propagates:**
+1. **Adapter** generates the correlation ID (UUID) when receiving the seller's request
+2. Sent as an **HTTP header** to sellers-core
+3. Sellers-core stores it in the DB alongside the creation attempt
+4. Propagated as an **SQS message attribute** to product-information
+5. Product-information propagates it to amz-wrapper (via the second SQS)
+6. All logs across all services include the correlation ID
 
-**Por qué arranca en el adapter:**
-- Seller Center puede mostrar el correlation ID al seller en la UI
-- Si un seller reporta un problema, el Account Manager busca por correlation ID y tiene la traza completa
-- La Public API lo devuelve en el response header para que integradores puedan correlacionar con sus sistemas
+**Why it starts at the adapter:**
+- Seller Center can display the correlation ID to the seller in the UI
+- If a seller reports a problem, the Account Manager searches by correlation ID and gets the complete trace
+- The Public API returns it in the response header so integrators can correlate with their own systems
 
-**Pregunta de follow-up probable:** "¿Y si el seller sube un archivo por SFTP con 5000 productos?"
-- "El adapter de SFTP genera un correlation ID por archivo (batch) y un sub-correlation ID por línea/producto. Así podés trazar tanto el batch completo como cada producto individual."
+**Likely follow-up question:** "What if the seller uploads a file via SFTP with 5000 products?"
+- "The SFTP adapter generates a correlation ID per file (batch) and a sub-correlation ID per line/product. This way you can trace both the complete batch and each individual product."
 
-### 6. Observabilidad (Timestream + Dashboards)
+### 9. Observability (Timestream + Dashboards)
 
-**Qué decir:** "Sellers-core envía métricas a Timestream: cantidad de intentos por canal, tasa de éxito/error, latencia de procesamiento. Con eso armamos dashboards diferenciados:"
+**What to say:** "Sellers-core sends metrics to Timestream: attempt count by channel, success/error rate, processing latency. With that we built differentiated dashboards:"
 
-- **Dashboard de negocio (Account Managers):** % de productos creados exitosamente por seller, productos en NEEDS_INFO, top sellers con errores
-- **Dashboard técnico (IT):** Latencia p95 del flujo end-to-end, depth de las colas SQS, tasa de 429 de Amazon, DLQ size
+- **Business dashboard (Account Managers):** % of successfully created products per seller, products in NEEDS_INFO, top sellers with errors
+- **Technical dashboard (IT):** p95 latency of the end-to-end flow, SQS queue depth, Amazon 429 rate, DLQ size
 
-**Por qué importa para la entrevista:** "Pasamos de ser puramente reactivos — enterándonos de problemas cuando el seller se quejaba — a ser proactivos. Las alertas nos notifican antes de que el seller se dé cuenta."
+**Why it matters for the interview:** "We went from being purely reactive — finding out about problems when the seller complained — to being proactive. Alerts notify us before the seller even notices."
 
-### 7. Storage decisions
+### 10. Storage decisions
 
-**Qué decir:**
-- **RDS (seller-catalog):** Datos estructurados del intento de creación — seller ID, estado, timestamps, correlation ID. Necesitamos ACID para las transiciones de estado.
-- **DynamoDB (seller-catalog-raw-data):** Metadata variable del producto (cada canal manda datos distintos, esquema flexible). Schema-on-read, no podemos forzar un schema relacional porque la estructura depende del canal y la categoría.
-- **Redis:** Cache de productos de Amazon (evita llamadas repetidas) + rate limiter distribuido (safety net).
+**What to say:**
+- **RDS (seller-catalog):** Structured data for the creation attempt — seller ID, status, timestamps, correlation ID. We need ACID for state transitions.
+- **DynamoDB (seller-catalog-raw-data):** Variable product metadata (each channel sends different data, flexible schema). Schema-on-read, we can't enforce a relational schema because the structure depends on the channel and category.
+- **Redis:** Amazon product cache (avoids repeated calls) + distributed rate limiter (safety net).
 
-**Pregunta de follow-up probable:** "¿Por qué no todo en DynamoDB o todo en RDS?"
-- "Los intentos de creación son transaccionales (máquina de estados con ACID) — RDS. La metadata del producto es variable y schema-less — DynamoDB. Cada store para lo que hace mejor."
-
----
-
-### 8. Colas dedicadas por dirección de comunicación
-
-**Qué decir:** "Las colas entre product-information y amz-wrapper son distintas para ida y vuelta. No reutilizamos la misma cola."
-
-**Por qué colas separadas:**
-- **Semántica distinta:** El mensaje de ida es "resolvé este producto en Amazon" (contiene el identificador universal). El de vuelta es "acá está el resultado" (contiene la info del producto o el error). Son contratos diferentes.
-- **Consumers distintos con necesidades distintas:** La cola de ida la consume amz-wrapper con concurrencia controlada (respetando el rate limit de Amazon). La cola de vuelta la consume product-information sin restricción de rate — queremos procesar respuestas lo más rápido posible para actualizar el estado del producto.
-- **Monitoreo independiente:** Si la cola de ida crece, el problema es que Amazon está lento o caído. Si la cola de vuelta crece, el problema es que product-information está saturado. Son señales operacionales distintas que necesitamos alertar por separado.
-- **Sin routing logic:** Si usáramos la misma cola, necesitaríamos lógica para distinguir "¿este mensaje es un request o un response?" — complejidad innecesaria.
-
-**Pregunta de follow-up probable:** "¿Por qué no usar un request-reply pattern síncrono con correlation?"
-→ "Porque el procesamiento en Amazon puede tardar segundos, y con concurrencia controlada los mensajes pueden quedar encolados. Un request-reply síncrono bloquearía threads de product-information esperando respuesta, reduciendo su capacidad de seguir procesando mensajes de sellers-core. Con colas separadas, product-information encola y sigue trabajando — el resultado llega cuando está listo."
+**Likely follow-up question:** "Why not everything in DynamoDB or everything in RDS?"
+- "Creation attempts are transactional (state machine with ACID) — RDS. Product metadata is variable and schema-less — DynamoDB. Each store for what it does best."
 
 ---
 
-### Resumen de patrones para mencionar
+### 11. Dedicated queues per communication direction
 
-| Patrón | Dónde | Por qué |
-|--------|-------|---------|
-| Ports & Adapters | Canales → sellers-core | Desacoplar canales de la lógica de negocio |
-| Async messaging (SQS) | sellers-core → product-info | Desacoplar seller del procesamiento |
-| Pull-based rate control | product-info → amz-wrapper | Respetar rate limit por diseño |
-| DLQ | Ambas colas | No perder mensajes fallidos |
-| Exponential backoff | amz-wrapper → Amazon | Retry en errores transitorios de Amazon |
-| Distributed rate limiter | amz-wrapper (Redis) | Safety net para el rate limit |
-| Cache-aside | amz-wrapper (Redis) | Evitar llamadas repetidas a Amazon |
-| Correlation ID | Desde el adapter | Trazabilidad end-to-end |
-| State machine | sellers-core (RDS) | Ciclo de vida del intento de creación |
-| Polyglot persistence | RDS + DynamoDB + Redis | Cada store para su caso de uso |
-| Dedicated queues per direction | product-info ↔ amz-wrapper | Monitoreo independiente, sin routing logic |
+**What to say:** "The queues between product-information and amz-wrapper are separate for request and response. We don't reuse the same queue."
 
-### Preguntas difíciles y cómo responder
+**Why separate queues:**
+- **Different semantics:** The outbound message is "resolve this product in Amazon" (contains the universal product identifier). The inbound message is "here's the result" (contains the product info or the error). Different contracts.
+- **Different consumers with different needs:** The outbound queue is consumed by amz-wrapper with controlled concurrency (respecting Amazon's rate limit). The inbound queue is consumed by product-information with no rate restriction — we want to process responses as fast as possible to update the product's status.
+- **Independent monitoring:** If the outbound queue grows, the problem is that Amazon is slow or down. If the inbound queue grows, the problem is that product-information is overloaded. These are distinct operational signals that we need to alert on separately.
+- **No routing logic:** If we used the same queue, we'd need logic to distinguish "is this message a request or a response?" — unnecessary complexity.
 
-**"¿Qué pasa si Amazon está caído por horas?"**
-→ "Los mensajes se acumulan en la cola de amz-lookup. Tenemos alarmas sobre el queue depth. Los sellers ven sus productos en estado PENDING. Cuando Amazon vuelve, la cola se drena naturalmente respetando el rate limit. Si la caída es prolongada, la DLQ captura mensajes que exceden el max retries y los reprocesamos manualmente."
+**Likely follow-up question:** "Why not use a synchronous request-reply pattern with correlation?"
+→ "Because processing in Amazon can take seconds, and with controlled concurrency messages may stay queued. A synchronous request-reply would block product-information threads waiting for a response, reducing its capacity to keep processing messages from sellers-core. With separate queues, product-information enqueues and moves on — the result arrives when it's ready."
 
-**"¿Cómo garantizás idempotencia?"**
-→ "Cada intento de creación tiene un ID único (correlation ID + seller ID + product identifier). Product-information checkea si ya existe antes de procesar. Amz-wrapper usa el cache de Redis como lookup antes de ir a Amazon. Si un mensaje se procesa dos veces por un retry, el resultado es el mismo."
+---
 
-**"¿Cómo escala esto?"**
-→ "Horizontalmente en cada capa. Los adapters y sellers-core son stateless detrás de load balancers. Las colas SQS escalan automáticamente. Product-information y amz-wrapper escalan en instancias pero con concurrencia controlada en el consumer de la cola de Amazon."
+### Pattern summary
 
-**"¿Qué cambiarías si empezaras de cero?"**
-→ Preparar una respuesta personal sobre esto — quizás event sourcing en sellers-core, o un API Gateway unificado para los adapters.
+| Pattern | Where | Why |
+|---------|-------|-----|
+| Ports & Adapters | Channels → sellers-core | Decouple channels from business logic |
+| API Gateway | In front of adapters | Centralize auth, rate limiting, observability |
+| Saga (orchestration) | sellers-core | Coordinate N services with compensating transactions |
+| Outbox | sellers-core → SQS | Atomic DB write + message publish, no 2PC needed |
+| Async messaging (SQS) | sellers-core → product-info | Decouple seller from processing |
+| Pull-based rate control | product-info → amz-wrapper | Respect rate limit by design |
+| DLQ | Both queues | Don't lose failed messages |
+| Exponential backoff | amz-wrapper → Amazon | Retry on transient Amazon errors |
+| Circuit breaker | amz-wrapper → Amazon | Fail fast on outage, protect queue backlog |
+| Distributed rate limiter | amz-wrapper (Redisson) | Hard stop — safety net when concurrency leaks |
+| Cache-aside | amz-wrapper (Redis/Valkey) | Avoid repeated calls to Amazon |
+| Correlation ID | From the adapter | End-to-end traceability |
+| State machine | sellers-core (RDS) | Creation attempt + saga lifecycle |
+| Polyglot persistence | RDS + DynamoDB + Redis | Each store for its use case |
+| Dedicated queues per direction | product-info ↔ amz-wrapper | Independent monitoring, no routing logic |
+
+### Hard questions and how to answer them
+
+**"What happens if Amazon is down for hours?"**
+→ "Messages accumulate in the amz-lookup queue. We have alarms on queue depth. Sellers see their products in PENDING status. When Amazon comes back, the queue drains naturally while respecting the rate limit. If the outage is prolonged, the DLQ captures messages that exceed max retries and we reprocess them manually."
+
+**"How do you guarantee idempotency?"**
+→ "Each creation attempt has a unique ID (correlation ID + seller ID + product identifier). Product-information checks if it already exists before processing. Amz-wrapper uses the Redis cache as a lookup before going to Amazon. If a message is processed twice due to a retry, the result is the same."
+
+**"How does this scale?"**
+→ "Horizontally at each layer. Adapters and sellers-core are stateless behind load balancers. SQS queues scale automatically. Product-information and amz-wrapper scale in instances but with controlled concurrency on the Amazon queue consumer."
+
+**"What would you change if you started from scratch?"**
+→ "Two things: first, an API Gateway in front of the adapters from day one — centralized auth, rate limiting, and observability without duplicating that logic per adapter. Second, I'd evaluate event sourcing in sellers-core instead of a traditional state machine: the saga steps are already events, so capturing them as an immutable event log would give us better auditability and make replaying/debugging sagas much easier."
