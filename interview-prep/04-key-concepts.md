@@ -78,6 +78,11 @@ The application is decomposed into small, independent services, each owning its 
 - Use **retries with backoff** for transient failures
 - Consider **bulkheads** to isolate thread pools per dependency
 
+**Libraries & tools:**
+- **HTTP clients:** Spring `RestTemplate` (legacy), Spring `WebClient` (reactive, non-blocking), OpenFeign (declarative REST client with annotations)
+- **Resilience:** Resilience4j (circuit breaker, retry, bulkhead, rate limiter — modular, lightweight), Hystrix (Netflix, deprecated but still in legacy codebases)
+- **Service mesh:** Istio + Envoy (handles retries, timeouts, circuit breaking at infrastructure level — no code changes)
+
 ### Asynchronous Communication (Message Queues / Events)
 
 **How it works:** The caller sends a message and continues immediately. The receiver processes the message when ready. Decoupled in time.
@@ -99,6 +104,11 @@ The application is decomposed into small, independent services, each owning its 
 - **Pub/Sub (Topic):** One producer, multiple subscribers. Each subscriber gets a copy of every message. Use SNS, Kafka topics. Good for event notification.
 - **Request-Reply (async):** Producer sends a message with a reply-to queue. Consumer processes and responds to the reply queue. Use when you need async but also need the result eventually.
 
+**Libraries & tools:**
+- **AWS:** SQS, SNS, EventBridge — managed, serverless. Java SDK: `software.amazon.awssdk:sqs`, `software.amazon.awssdk:sns`. Spring integration: Spring Cloud AWS Messaging.
+- **RabbitMQ:** AMQP broker, supports complex routing (exchanges, bindings). Libraries: Spring AMQP (`spring-boot-starter-amqp`).
+- **Apache Kafka:** Distributed streaming platform, high throughput. Libraries: `spring-kafka`, `kafka-clients`. See Messaging section for details.
+
 **My experience:** At NocNoc, sellers-core communicates with product-information via SQS because product creation is a long-running operation that involves external API calls with rate limits. The seller gets an immediate response (PENDING) and tracks the status asynchronously.
 
 ### Event-Driven Architecture
@@ -107,7 +117,7 @@ The application is decomposed into small, independent services, each owning its 
 
 **Components:**
 - **Event Producers:** Services that emit events when something happens in their domain
-- **Event Broker:** The infrastructure that routes events (Kafka, SNS+SQS, EventBridge, RabbitMQ)
+- **Event Broker:** The infrastructure that routes events (Kafka, SNS+SQS, EventBridge, RabbitMQ, Pulsar)
 - **Event Consumers:** Services that subscribe to and react to events
 
 **Event types:**
@@ -169,6 +179,12 @@ Manages distributed transactions across multiple services. Each step has a compe
 
 **When to use:** When you need ACID-like guarantees across services but can't use a single database transaction.
 
+**Libraries & tools:**
+- **Temporal:** Durable execution framework for orchestrating long-running workflows. Code-first, supports retries and compensation natively. Languages: Java, Go, TypeScript, Python.
+- **AWS Step Functions:** Serverless orchestrator, visual workflow editor, integrates with Lambda/SQS/SNS. JSON-based state machine definition (ASL).
+- **Axon Framework:** Java framework with built-in saga support, CQRS, and event sourcing. Tight Spring Boot integration.
+- **MassTransit / NServiceBus:** .NET ecosystem saga orchestrators.
+
 ### Service Discovery
 Services register themselves and discover other services dynamically. Essential when services scale horizontally and IPs change.
 
@@ -187,12 +203,16 @@ Store state changes as a sequence of events rather than current state. The curre
 
 **When to use:** Regulated domains requiring audit trails (fintech, healthcare), systems where understanding "how we got here" matters.
 
+**Libraries & tools:** Axon Framework (Java), EventStoreDB (purpose-built event store database), Marten (.NET + PostgreSQL), Kafka as event store (with log compaction).
+
 ### CQRS (Command Query Responsibility Segregation)
 Separate read and write models. Write model optimized for consistency, read model optimized for queries.
 
 **How it works:** Commands (writes) go to one model/database. Queries (reads) go to another, optimized for the read patterns. The read model is kept in sync via events (eventual consistency).
 
 **When to use:** When read and write patterns differ significantly — e.g., writes are complex domain operations but reads need denormalized views or full-text search.
+
+**Libraries & tools:** Axon Framework (Java, full CQRS+ES support), Spring Data with separate read/write datasources, Elasticsearch or Redis as read-side store.
 
 ### Outbox Pattern
 Solve the dual-write problem: write to database AND publish event atomically. Write event to an "outbox" table in the same DB transaction, then a separate process (CDC or poller) publishes it to the message broker.
@@ -216,6 +236,8 @@ Isolate critical resources so that a failure in one part doesn't take down the e
 **Implementation:** Separate thread pools, connection pools, or even separate service instances for different workloads. If one pool is exhausted, others remain unaffected.
 
 **Example:** Separate thread pools for "create product" and "get product status" endpoints, so a spike in creation requests doesn't block status queries.
+
+**Libraries:** Resilience4j Bulkhead (thread pool or semaphore isolation), Hystrix (deprecated, used thread pool isolation).
 
 ### Backend for Frontend (BFF)
 A dedicated backend service for each frontend type (web, mobile, third-party API). Each BFF aggregates and transforms data specifically for its client.
@@ -275,6 +297,8 @@ An operation is idempotent if performing it multiple times produces the same res
 - **Natural idempotency:** Design operations to be naturally idempotent — `SET status = 'active'` is idempotent, `INCREMENT counter` is not.
 - **Database constraints:** Use unique constraints or upserts (INSERT ON CONFLICT) to prevent duplicate processing.
 
+**Libraries & tools:** Redis (store idempotency keys with TTL), DynamoDB conditional writes (`attribute_not_exists`), Spring's `@Transactional` + unique constraints, Stripe SDK (built-in `Idempotency-Key` header).
+
 **My experience:** At NocNoc, each product creation attempt has a unique ID (correlation ID + seller ID + product identifier). Product-information checks existence before processing. If a message is processed twice due to a retry, the result is the same.
 
 ### Resilience Patterns Summary
@@ -289,6 +313,8 @@ An operation is idempotent if performing it multiple times produces the same res
 | **Rate Limiter** | Limits request rate to protect downstream | APIs with quotas, overloaded services |
 | **Dead-letter queue** | Captures failed messages for later analysis | Any async processing pipeline |
 
+**Key libraries:** Resilience4j (circuit breaker, retry, bulkhead, rate limiter — all in one), Spring Retry (`@Retryable` annotation), Failsafe (Java, fluent API for retries and circuit breakers).
+
 ### Graceful Degradation
 When a non-critical dependency fails, the system should continue working with reduced functionality rather than failing entirely.
 
@@ -299,9 +325,11 @@ When a non-critical dependency fails, the system should continue working with re
 - **Readiness probe:** "Can the service handle traffic?" — remove it from the load balancer if not. Checks dependencies (DB, cache) are available.
 
 ### Observability Pillars
-- **Metrics:** Numerical measurements over time (latency, error rate, throughput). Tools: Prometheus, Timestream, CloudWatch.
-- **Logs:** Structured, searchable records of events. Include correlation IDs. Tools: ELK stack, Graylog, CloudWatch Logs.
-- **Traces:** End-to-end request path across services. Tools: Jaeger, Zipkin, AWS X-Ray.
+- **Metrics:** Numerical measurements over time (latency, error rate, throughput). Tools: Prometheus, Grafana, Timestream, CloudWatch, Datadog.
+- **Logs:** Structured, searchable records of events. Include correlation IDs. Tools: ELK stack (Elasticsearch + Logstash + Kibana), Graylog, CloudWatch Logs, Fluentd/Fluent Bit (log shipping).
+- **Traces:** End-to-end request path across services. Tools: Jaeger, Zipkin, AWS X-Ray, OpenTelemetry (vendor-neutral SDK for metrics + logs + traces).
+
+**Java libraries:** Micrometer (metrics facade, like SLF4J for metrics — plugs into Prometheus, CloudWatch, Datadog), SLF4J + Logback (structured logging), OpenTelemetry Java SDK, Spring Boot Actuator (health checks, metrics endpoints out of the box).
 
 ---
 
@@ -356,6 +384,94 @@ When multiple service instances need to coordinate access to a shared resource:
 
 **When NOT to use distributed locks:** If you can redesign to avoid coordination — e.g., partition data so each instance owns a subset (sharding), or use optimistic locking (version numbers) instead.
 
+### Optimistic Locking
+
+A concurrency control strategy that assumes conflicts are rare. Instead of acquiring a lock before modifying data, the system reads a record along with a **version indicator** (version number, timestamp, or hash), performs the update, and at write time checks that the version hasn't changed. If it has, the write is rejected and the caller retries.
+
+**How it works:**
+1. Read the record and its current version (`v = 5`)
+2. Do your work / compute new state
+3. Write with a condition: `UPDATE ... SET version = 6 WHERE id = ? AND version = 5`
+4. If no rows are affected → someone else updated first → retry or fail
+
+**Common implementations:**
+- **Database version column:** An integer column that increments on every update. The `WHERE version = ?` clause acts as a guard. JPA/Hibernate supports this natively with `@Version`.
+- **DynamoDB conditional writes:** `ConditionExpression: "version = :expected"` on `PutItem`/`UpdateItem`. If the condition fails, the SDK throws `ConditionalCheckFailedException`.
+- **ETag / If-Match headers:** RESTful APIs return an `ETag` with a response; the client sends `If-Match: <etag>` on the update request. The server rejects the write with `412 Precondition Failed` if the resource changed.
+
+**Optimistic vs Pessimistic locking:**
+
+| Aspect | Optimistic | Pessimistic |
+|--------|-----------|-------------|
+| Lock acquired | Never — checks at write time | Before reading/writing |
+| Performance under low contention | Better — no lock overhead | Worse — lock acquisition cost even when no conflict |
+| Performance under high contention | Worse — many retries/failures | Better — waiters queue for the lock |
+| Deadlock risk | None | Possible |
+| Best for | Read-heavy workloads, low-conflict updates | Write-heavy, high-conflict critical sections |
+
+**When to use:**
+- Most web application updates (e.g., editing a product, updating user profile) where conflicts are unlikely
+- Distributed systems where acquiring a distributed lock is expensive or complex
+- APIs where you want clients to handle conflicts gracefully (retry or merge)
+
+**When NOT to use:**
+- High-contention hot rows (e.g., inventory counter decremented by many concurrent buyers) — too many retries
+- When the cost of retrying is high (long computations, side effects that can't be undone)
+
+### Database-Level Locking
+
+Databases implement their own internal locking mechanisms to guarantee ACID properties. The locking granularity and strategy varies between SQL and NoSQL databases.
+
+**Lock granularity in relational databases (SQL):**
+
+| Granularity | What's locked | Trade-off |
+|-------------|--------------|-----------|
+| **Row-level** | Individual rows affected by the query | Best concurrency, most common (PostgreSQL, MySQL InnoDB default) |
+| **Page-level** | A memory page (block of rows, typically 8KB) | Middle ground, used by SQL Server in some cases |
+| **Table-level** | Entire table | Lowest concurrency, but simplest. MySQL MyISAM uses this. DDL operations (`ALTER TABLE`) typically take table locks |
+| **Advisory locks** | Application-defined, no physical rows locked | Useful for coordinating application logic. PostgreSQL: `pg_advisory_lock()` |
+
+**How SQL databases lock — pessimistic locking in practice:**
+- **Shared lock (S / read lock):** Multiple transactions can read the same row simultaneously. Acquired by `SELECT` (depending on isolation level).
+- **Exclusive lock (X / write lock):** Only one transaction can hold it. Acquired by `UPDATE`, `DELETE`, `INSERT`. Blocks other writers AND readers (depending on isolation level).
+- **`SELECT ... FOR UPDATE`:** Explicitly acquires an exclusive lock on the selected rows. Other transactions that try to read `FOR UPDATE` or modify those rows will block until the lock is released. This is **pessimistic locking** at the DB level.
+- **`SELECT ... FOR SHARE`:** Acquires a shared lock — allows other readers but blocks writers.
+
+**Isolation levels and locking (SQL):**
+
+| Isolation Level | Dirty Read | Non-Repeatable Read | Phantom Read | Locking overhead |
+|----------------|-----------|-------------------|-------------|-----------------|
+| Read Uncommitted | Possible | Possible | Possible | Minimal |
+| Read Committed | No | Possible | Possible | Low (PostgreSQL default) |
+| Repeatable Read | No | No | Possible* | Medium (MySQL InnoDB default) |
+| Serializable | No | No | No | Highest — full range locks |
+
+*MySQL InnoDB's Repeatable Read also prevents phantom reads using gap locks.
+
+**MVCC (Multi-Version Concurrency Control):**
+PostgreSQL and MySQL InnoDB use MVCC instead of holding read locks. Each transaction sees a **snapshot** of the data at a point in time. Readers don't block writers, writers don't block readers. Only writers block writers. This is why PostgreSQL can offer high concurrency even at Repeatable Read isolation.
+
+**Locking in NoSQL databases:**
+
+NoSQL databases also support locking and concurrency control, but with different approaches:
+
+- **DynamoDB:** No traditional locks. Uses **optimistic concurrency control** via conditional writes (`ConditionExpression`). Transactions supported via `TransactWriteItems` (up to 100 items, all-or-nothing, serializable isolation). Locks individual items, not tables.
+- **MongoDB:** Supports **document-level locking** (since WiredTiger engine, v3.2+). A write locks only the affected document. Multi-document transactions supported (since v4.0) with snapshot isolation — locks all documents involved. For reads, MVCC provides non-blocking reads.
+- **Redis:** Single-threaded, so commands are naturally serialized. For multi-key atomic operations, use `MULTI`/`EXEC` transactions or Lua scripts. No row/document locks — the entire operation is atomic.
+- **Cassandra:** No traditional locking. Uses **lightweight transactions (LWT)** with Paxos consensus for compare-and-set operations: `INSERT ... IF NOT EXISTS`, `UPDATE ... IF version = ?`. Expensive — use sparingly.
+- **Elasticsearch:** No locking. Uses **optimistic concurrency control** with `_seq_no` and `_primary_term` fields (version-based). Writes specify the expected version, rejected if stale.
+
+**Summary — what gets locked where:**
+
+| Database | Lock granularity | Pessimistic locks | Optimistic locks |
+|----------|-----------------|-------------------|-----------------|
+| PostgreSQL | Row-level (MVCC) | `SELECT FOR UPDATE` | `@Version` / application-level |
+| MySQL InnoDB | Row-level (MVCC) + gap locks | `SELECT FOR UPDATE` | `@Version` / application-level |
+| DynamoDB | Item-level | No (use transactions) | `ConditionExpression` |
+| MongoDB | Document-level | `findOneAndUpdate` with session | Version field + conditional update |
+| Redis | Command-level (single-threaded) | N/A | `WATCH` + `MULTI`/`EXEC` |
+| Cassandra | Partition-level (LWT) | No | `IF` clauses (Paxos) |
+
 ---
 
 ## Design Principles
@@ -374,6 +490,8 @@ When multiple service instances need to coordinate access to a shared resource:
 
 ### Clean Architecture
 Dependency rule: inner layers don't know about outer layers. Domain logic at the center, frameworks and infrastructure at the edges. Makes the codebase testable and framework-independent.
+
+**Tools:** ArchUnit (Java library that enforces architecture rules in unit tests — e.g., "domain layer must not import infrastructure layer").
 
 ### Domain-Driven Design (DDD)
 - **Bounded Contexts:** Clear boundaries between different parts of the domain
@@ -433,6 +551,30 @@ Dependency rule: inner layers don't know about outer layers. Domain logic at the
 
 **When to choose:** Transactional data, relationships between entities, complex queries, data integrity is critical. Financial systems, user accounts, inventory management.
 
+### When Theory Breaks: Dropping PKs and FKs at Scale
+
+Textbook relational design says every table should have primary keys (PKs) and foreign keys (FKs) to guarantee referential integrity. In practice, at extreme scale (hundreds of millions to billions of rows), these constraints become a serious performance bottleneck.
+
+**Why PKs and FKs hurt at massive scale:**
+
+- **Foreign key checks on every write:** Every `INSERT`, `UPDATE`, or `DELETE` on a child table forces the database to verify the parent row exists (or vice versa on cascade). At millions of writes per second, these cross-table lookups add up — each FK check is essentially a hidden `SELECT` behind the scenes.
+- **Lock contention on referenced tables:** FK enforcement acquires shared locks on the parent row. When thousands of concurrent transactions reference the same parent, this creates lock contention and wait queues, degrading throughput.
+- **DDL operations become dangerous:** `ALTER TABLE` on a table with FKs can require rebuilding indexes and re-validating constraints across millions of rows. On a large table, this can lock it for minutes or hours.
+- **Sharding becomes impossible (or very painful):** When you shard a database horizontally, foreign keys that reference tables on different shards can't be enforced by the DB engine. You'd need cross-shard transactions, which defeats the purpose of sharding.
+- **Cascade deletes at scale are time bombs:** A `ON DELETE CASCADE` on a parent with millions of children can lock the table and spike latency for the entire system.
+- **PK with auto-increment (SERIAL/BIGSERIAL):** In distributed/sharded setups, auto-increment PKs cause hotspotting — all inserts go to the same shard/page. This is why distributed systems use UUIDs, ULIDs, or Snowflake IDs instead.
+
+**What you do instead:**
+
+- **Enforce integrity at the application layer:** The service validates relationships before writing (e.g., check that the user exists before creating an order). The contract is in the code, not in the DB.
+- **Use indexes without constraints:** You still create indexes for query performance, but without the FK constraint overhead. An index on `user_id` in the orders table is cheap to maintain; a `FOREIGN KEY (user_id) REFERENCES users(id)` is not.
+- **Eventual consistency for cross-entity integrity:** If an orphaned row appears (e.g., the parent gets deleted), a background job or CDC process detects and reconciles it asynchronously.
+- **Immutable/append-only data:** At high scale, many systems never delete — they soft-delete or archive. This avoids cascade deletes entirely.
+
+**My experience:** At Mercado Libre, with databases handling hundreds of millions of records, it was an explicit rule: **no foreign keys, no enforced primary key constraints at the DB level**. Referential integrity was the application's responsibility. This was a deliberate trade-off — sacrificing DB-level safety nets for write throughput, horizontal scalability, and operational flexibility. The same pattern is used by other high-scale companies (Uber, Facebook, Pinterest) that shard MySQL and need to move fast without DDL-induced downtime.
+
+**Key takeaway for interviews:** Knowing theory is important, but knowing *when to break the rules* shows real-world experience. The answer to "should you always use foreign keys?" is: **it depends on scale and write patterns**. For a system with thousands of records, absolutely use FKs — they're free safety. For a system with billions of records and thousands of writes per second, FKs become a liability and the integrity guarantee moves to the application layer.
+
 ### Non-Relational Databases (NoSQL)
 
 **Types and when to use each:**
@@ -475,11 +617,33 @@ Dependency rule: inner layers don't know about outer layers. Domain logic at the
 
 **My experience:** At NocNoc, sellers-core uses RDS for transactional state machine data (ACID), DynamoDB for variable product metadata (schema flexibility), and Redis for caching and rate limiting.
 
-### ACID (recap)
-- **Atomicity:** All or nothing — transaction fully completes or fully rolls back
-- **Consistency:** DB moves from one valid state to another
-- **Isolation:** Concurrent transactions don't interfere with each other
-- **Durability:** Committed data survives crashes
+### ACID Transactions
+
+ACID is the set of guarantees that relational databases provide to ensure data correctness, even under concurrent access and system failures.
+
+- **Atomicity:** All or nothing. A transaction is a unit of work — either all statements execute successfully and are committed, or none of them take effect. If step 3 of 5 fails, steps 1 and 2 are rolled back. This is what makes `BEGIN ... COMMIT / ROLLBACK` possible.
+- **Consistency:** The database moves from one valid state to another. All defined rules (constraints, triggers, cascades, data types) are enforced. A transaction can't leave the DB in an invalid state — for example, you can't insert a negative balance if a `CHECK` constraint forbids it.
+- **Isolation:** Concurrent transactions don't interfere with each other. Each transaction behaves as if it were running alone. The degree of isolation depends on the isolation level configured (see "Database-Level Locking" section for the full table: Read Uncommitted → Serializable). Higher isolation = fewer anomalies but more locking overhead.
+- **Durability:** Once a transaction is committed, the data is permanently saved — even if the server crashes immediately after. The database writes to a **WAL (Write-Ahead Log)** before confirming the commit, so it can recover the data on restart.
+
+**How a transaction works in practice:**
+```sql
+BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;  -- debit
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;  -- credit
+COMMIT;
+-- If anything fails between BEGIN and COMMIT, both updates are rolled back.
+-- The money never disappears and never duplicates.
+```
+
+**Why it matters:** Without ACID, a bank transfer could debit one account but fail to credit the other (lost money), or two concurrent purchases could both read the same stock count and oversell. ACID is what makes relational databases the default choice for financial systems, inventory, and any data where correctness is non-negotiable.
+
+**ACID vs BASE (NoSQL trade-off):**
+Most NoSQL databases trade ACID for **BASE** — **B**asically **A**vailable, **S**oft state, **E**ventual consistency. This allows higher availability and horizontal scalability, but the application must handle temporary inconsistencies. Some NoSQL databases offer limited ACID support (e.g., DynamoDB Transactions, MongoDB multi-document transactions), but it's always scoped and more expensive than in SQL databases.
+
+### Connection Pools & Migration Tools
+- **Connection pools:** HikariCP (default in Spring Boot — fast, lightweight), Apache DBCP, c3p0 (legacy).
+- **Schema migrations:** Flyway (SQL-based migrations, versioned scripts), Liquibase (XML/YAML/JSON changelogs, more features but more complex). Both integrate with Spring Boot.
 
 ### Indexing
 B-tree indexes for range queries, hash indexes for exact lookups. Composite indexes: column order matters — leftmost prefix rule. Always check EXPLAIN plans. Trade-off: faster reads, slower writes.
@@ -498,6 +662,7 @@ Each microservice owns its data. No shared databases. Communication via APIs or 
 - **Strengths:** Simple, universally understood, great tooling, cacheable (HTTP caching), human-readable
 - **Weaknesses:** Over-fetching (get more data than needed) and under-fetching (need multiple calls), no built-in schema enforcement
 - **When to use:** Public APIs, CRUD operations, when simplicity and broad compatibility matter
+- **Libraries:** Spring Web MVC (`@RestController`), JAX-RS (Java EE standard — Jersey, RESTEasy), OpenAPI Generator (generate client/server code from spec), Springdoc/Swagger UI (auto-generate API docs)
 
 ### gRPC (Google Remote Procedure Call)
 - **Protocol:** HTTP/2 (required)
@@ -506,6 +671,7 @@ Each microservice owns its data. No shared databases. Communication via APIs or 
 - **Strengths:** High performance (binary serialization, HTTP/2 multiplexing), strongly typed contracts, bidirectional streaming, automatic client/server code generation
 - **Weaknesses:** Not human-readable (binary), harder to debug, not browser-native (needs grpc-web proxy), less tooling for ad-hoc testing
 - **When to use:** Service-to-service communication within a cluster, low-latency requirements, polyglot environments where code generation saves time
+- **Libraries:** `grpc-java` (official), `grpc-spring-boot-starter`, `protobuf-java` (serialization), BloomRPC / grpcurl / Postman (testing tools)
 
 ### GraphQL
 - **Protocol:** HTTP (single endpoint, POST requests)
@@ -514,6 +680,7 @@ Each microservice owns its data. No shared databases. Communication via APIs or 
 - **Strengths:** Client specifies exactly what data it needs (no over/under-fetching), single endpoint, great for complex nested data, self-documenting schema
 - **Weaknesses:** Complex caching (can't use HTTP caching easily), N+1 query problem on the server, security concerns (complex queries can be expensive), learning curve
 - **When to use:** Client-facing APIs with diverse frontend needs, mobile apps where bandwidth matters, aggregating data from multiple services
+- **Libraries:** Netflix DGS Framework (Java/Spring, production-grade), `graphql-java` (low-level), Apollo Server (Node.js), Apollo Client (frontend), DataLoader (solves N+1 problem via batching)
 
 ### Comparison Table
 
@@ -560,6 +727,11 @@ Hash the client's IP to determine the server. Same client always goes to the sam
 
 ### Health-Check Aware
 Any strategy above combined with periodic health checks. Unhealthy instances are removed from the pool until they recover.
+
+### Load Balancer Tools
+- **Cloud:** AWS ALB (Layer 7, HTTP routing, path-based), AWS NLB (Layer 4, TCP/UDP, ultra-low latency), GCP Cloud Load Balancing.
+- **Self-managed:** Nginx (reverse proxy + LB), HAProxy (high-performance TCP/HTTP LB), Traefik (cloud-native, auto-discovery).
+- **Client-side:** Spring Cloud LoadBalancer (replaces Ribbon), gRPC built-in client-side LB.
 
 ---
 
@@ -719,6 +891,10 @@ Control how many requests are allowed in a time period. Protects services from o
 - **Leaky Bucket:** Requests enter a buffer and exit at a fixed rate. Smooths out spikes — no bursts allowed. Like a funnel.
 - **Sliding Window:** Counts requests in a sliding time window. More precise than fixed windows, avoids the boundary problem between windows.
 
+**Libraries:**
+- **Local:** Guava `RateLimiter` (token bucket, single JVM), Bucket4j (token bucket, supports local and distributed), Resilience4j RateLimiter.
+- **Distributed:** Redisson `RRateLimiter` (Redis-backed), Spring Cloud Gateway rate limiter (Redis-backed), Kong/Nginx (API gateway level).
+
 ### Distributed Rate Limiter
 When you have multiple instances of a service, the rate limit must be shared. A local rate limiter (per instance) isn't enough: if you have 5 instances and the limit is 10 req/s, each would allow 10 → 50 total.
 
@@ -766,6 +942,8 @@ Occurs when many clients/processes try to access the same resource simultaneousl
 ### Apache Kafka
 Distributed streaming platform. High throughput, fault tolerance, horizontal scaling. Topics, partitions, consumer groups. Use for: real-time analytics, event sourcing, system integration, log aggregation.
 
+**Libraries:** `spring-kafka` (Spring integration, `@KafkaListener`), `kafka-clients` (official Java client), Kafka Streams (stream processing library, lightweight alternative to Flink/Spark), Kafka Connect (pre-built connectors for DBs, S3, Elasticsearch), Schema Registry (Avro/Protobuf schema evolution with Confluent Schema Registry).
+
 ### Key Concepts
 - **At-least-once vs exactly-once delivery:** Most systems guarantee at-least-once. Design for idempotency.
 - **Dead-letter queue (DLQ):** Where messages go when they can't be processed after N retries
@@ -776,17 +954,17 @@ Distributed streaming platform. High throughput, fault tolerance, horizontal sca
 ## Testing
 
 ### Testing Pyramid
-- **Unit tests:** Fast, isolated, test a single function/class. Mock dependencies.
-- **Integration tests:** Test interaction between components (DB, APIs, message queues).
-- **E2E tests:** Test the full flow from user perspective. Slow, brittle, use sparingly.
+- **Unit tests:** Fast, isolated, test a single function/class. Mock dependencies. Libraries: JUnit 5, Mockito, AssertJ.
+- **Integration tests:** Test interaction between components (DB, APIs, message queues). Libraries: Testcontainers (real DBs/brokers in Docker), Spring Boot Test (`@SpringBootTest`), WireMock (mock external HTTP APIs).
+- **E2E tests:** Test the full flow from user perspective. Slow, brittle, use sparingly. Libraries: Selenium, Cypress, Playwright.
 
 ### TDD (Test-Driven Development)
 Red → Green → Refactor. Write the failing test first, then the minimal code to pass it, then clean up. Not always practical but valuable for complex logic.
 
 ### Testing in Microservices
-- Contract testing (Pact) to verify service interfaces
-- Consumer-driven contracts: consumer defines what it expects from provider
-- Testcontainers for integration tests with real databases/queues
+- **Contract testing:** Pact (consumer-driven contracts — consumer defines what it expects, provider verifies), Spring Cloud Contract (Spring-native alternative, generates stubs from contracts).
+- **Integration:** Testcontainers (spin up real PostgreSQL, Redis, Kafka, LocalStack in Docker for tests), LocalStack (mock AWS services locally).
+- **Load/performance:** Gatling (Scala DSL), JMeter, k6 (JavaScript-based, modern).
 
 ---
 
