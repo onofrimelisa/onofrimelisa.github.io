@@ -148,6 +148,136 @@ This is the most relevant experience for the Admin & IAM role. The EM will likel
 
 ---
 
+### Deep Dive: Multi-Language SDKs & Sidecar Deployment
+
+This section expands on two key architectural decisions from the MeLi authorization platform. Use it to demonstrate depth when the EM probes "how" and "why" beyond the high-level story.
+
+#### Why Multi-Language SDKs?
+
+**The fundamental question: Can't an app in language X just call an SDK written in language Y?**
+
+No — not for this use case. Here's why:
+
+1. **In-process evaluation is the whole point.** The SDK's job is to evaluate authorization policies locally, inside the application's process, without a network call. If a Java app had to call a Python SDK, that call would go over the network (or through some FFI bridge), which defeats the purpose. The latency budget for policy evaluation was sub-millisecond — a network hop to another process adds milliseconds at minimum.
+
+2. **FFI (Foreign Function Interface) is fragile and costly.** You could theoretically embed a Go evaluation engine inside a Java app via CGO/JNI, but:
+   - The operational complexity is enormous — cross-compilation, memory management across runtimes, debugging crashes across language boundaries
+   - Each language runtime has its own memory model, garbage collector, and threading model. Mixing them creates unpredictable behavior under load.
+   - Deployment becomes a nightmare: now every Java app ships with a Go runtime embedded.
+   - This approach is used by some projects (e.g., SQLite), but it makes sense for stable, battle-tested C libraries — not for a policy engine that evolves frequently.
+
+3. **Idiomatic integration matters for adoption.** The SDK had to feel native to each language's ecosystem:
+   - Java SDK: published to Maven, uses builder pattern, integrates with Spring dependency injection
+   - Go SDK: follows Go module conventions, uses functional options pattern, returns errors (no exceptions)
+   - Python SDK: pip-installable, Pythonic API with decorators for permission checks
+   - Node.js SDK: npm package, async/await, middleware pattern for Express/Fastify
+   - If the SDK feels foreign, teams resist adoption. And adoption was critical — this was meant to be the standard auth mechanism for the entire company.
+
+4. **Dependency isolation.** An SDK written in language X that gets imported into a language Y app brings X's entire runtime and dependency tree. A Go binary embedded in a Node.js app introduces libc dependencies, CGO compilation requirements, and a binary that's opaque to Node.js tooling (debugging, profiling, APM agents). Each native SDK keeps the dependency footprint minimal and compatible with the host ecosystem.
+
+**How we ensured consistency across SDKs:**
+
+The risk of multi-language SDKs is behavioral divergence — the same policy evaluating differently in Java vs. Go. We mitigated this with:
+
+- **Language-agnostic test suite:** A shared JSON file defining hundreds of scenarios: (policy + request context → expected allow/deny result). Every SDK ran this exact suite in its own test framework. This was the contract.
+- **Shared specification document:** The policy evaluation algorithm was formally specified — the order of rule evaluation, how conflicts resolve (explicit deny wins), how conditions are matched. The spec was the source of truth, SDKs were implementations of it.
+- **Cross-SDK integration tests in CI:** On every PR to any SDK, CI ran the full shared test suite across all four languages. A regression in one SDK blocked the release of all SDKs.
+
+**What I'd say in the interview:**
+
+> "We built native SDKs in four languages because the auth evaluation needed to happen in-process — sub-millisecond, no network hop. You can't achieve that by calling a foreign-language SDK. Each SDK had to be idiomatic to its ecosystem so teams would actually adopt it. The hard part wasn't writing four implementations — it was ensuring they all behaved identically. We solved that with a shared, language-agnostic test suite that was the single source of truth for policy evaluation behavior."
+
+---
+
+#### Sidecar Deployment Model
+
+**What is a sidecar?**
+
+A sidecar is a separate container that runs alongside the main application container in the same pod (in Kubernetes) or on the same host. It shares the network namespace with the main container, so communication between them is via `localhost` — effectively zero network latency.
+
+```
+┌──────────────────── Pod ────────────────────┐
+│                                             │
+│  ┌─────────────┐       ┌─────────────────┐  │
+│  │  Application │──gRPC──│  Auth Sidecar  │  │
+│  │  (any lang)  │  :9090 │  (policy eval) │  │
+│  └─────────────┘  local  └───────┬────────┘  │
+│                          host    │            │
+│                                  │ fetches    │
+│                                  ▼ policies   │
+│                          ┌──────────────┐     │
+│                          │ Central Auth │     │
+│                          │   Service    │     │
+│                          └──────────────┘     │
+└─────────────────────────────────────────────┘
+```
+
+**Why a sidecar when we already had native SDKs?**
+
+The SDK and the sidecar solve the same problem (local policy evaluation) but with different trade-offs:
+
+| Dimension | Native SDK | Sidecar |
+|-----------|-----------|---------|
+| **Latency** | Lowest — in-process, same memory space | Very low — localhost gRPC call (~0.1-0.5ms) |
+| **Language coupling** | Requires an SDK for the app's language | Language-agnostic — any app can call gRPC on localhost |
+| **Update/rollout** | App team must update their dependency and redeploy | Platform team can update the sidecar independently |
+| **Resource isolation** | Shares memory/CPU with the app — a bug in eval could affect the app | Separate container — memory leak in sidecar doesn't crash the app |
+| **Adoption friction** | Team must add a dependency, update code, learn the SDK API | Team only needs to make a gRPC call — minimal code change |
+| **Debugging** | One process — simpler stack traces | Two processes — need to correlate logs between containers |
+| **Versioning** | Each app may be on a different SDK version — fragmentation risk | Platform team controls the version centrally |
+
+**When to recommend each:**
+
+- **SDK** when: the team's language has a mature SDK, they need absolute minimum latency (sub-millisecond), and they're willing to own the dependency lifecycle (updates, testing).
+- **Sidecar** when: the team uses a language without an SDK (or a less mature one), they prefer not to manage auth dependencies, or when the platform team needs to push policy evaluation updates without requiring every app team to redeploy. Also when evaluating new authorization features — ship it in the sidecar, let teams opt in, then backport to SDKs once stable.
+
+**The real-world scenario that drove the sidecar decision:**
+
+> "We had teams using languages or frameworks where the SDK wasn't available yet, or where integrating it required significant refactoring. The sidecar gave them auth evaluation immediately — just add a container to your pod and make a localhost gRPC call. No dependency to import, no code changes beyond the API call. It also solved the versioning problem: with SDKs, some teams were stuck on old versions because upgrading required app changes and testing. With the sidecar, the platform team controls the version — we deploy an update and every app using the sidecar gets the new policy evaluation logic on the next pod restart."
+
+**How sidecar deployment and versioning worked for consuming teams:**
+
+The sidecar was published as a Docker image to the internal container registry, versioned with semver tags:
+
+```
+auth-sidecar:1.0.0
+auth-sidecar:1.1.0  (new feature: condition evaluation)
+auth-sidecar:1.2.0  (performance optimization)
+auth-sidecar:2.0.0  (breaking: new policy format)
+```
+
+Teams integrated by adding the sidecar container to their Kubernetes deployment manifest:
+
+```yaml
+# Team's deployment.yaml
+spec:
+  containers:
+    - name: my-app
+      image: my-app:latest
+    - name: auth-sidecar
+      image: auth-sidecar:1.2.0    # pin to a specific version
+      ports:
+        - containerPort: 9090       # gRPC endpoint
+      env:
+        - name: POLICY_SERVICE_URL
+          value: "https://auth-central.internal"
+        - name: CACHE_TTL
+          value: "300"              # policy cache duration in seconds
+```
+
+**Rollout strategy:**
+
+- **Minor/patch versions** (backward-compatible): Platform team announced the new version. Teams updated the image tag at their own pace. Strongly encouraged but not forced.
+- **Major versions** (breaking changes): Coordinated rollout with a migration window. Old version kept running for N weeks. Platform team provided migration guides and office hours.
+- **Emergency patches** (security fixes): Platform team could push a new image tag and trigger rolling restarts across all pods using the sidecar — teams didn't need to do anything because the sidecar version was managed via a shared Helm chart variable that the platform team controlled.
+- **Canary rollout for risky changes**: Deploy the new sidecar version to a subset of pods first, monitor policy evaluation metrics (latency, error rate, deny rate), and promote or rollback based on data.
+
+**The key trade-off to articulate in the interview:**
+
+> "The sidecar adds operational complexity — it's another container to deploy, monitor, and debug. But it decouples the auth platform's release cycle from every application team's release cycle. With SDKs alone, shipping a critical policy evaluation fix means waiting for 50+ teams to update their dependency and redeploy. With the sidecar, we ship it once and it's live everywhere. For a security-critical system like authorization, that deployment independence was worth the operational cost."
+
+---
+
 ### Storytelling: Other experiences mapped to Admin & IAM
 
 #### NocNoc sellers-core — Ownership & Building from Scratch
