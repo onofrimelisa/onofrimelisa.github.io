@@ -166,12 +166,33 @@ No — not for this use case. Here's why:
    - Deployment becomes a nightmare: now every Java app ships with a Go runtime embedded.
    - This approach is used by some projects (e.g., SQLite), but it makes sense for stable, battle-tested C libraries — not for a policy engine that evolves frequently.
 
-3. **Idiomatic integration matters for adoption.** The SDK had to feel native to each language's ecosystem:
-   - Java SDK: published to Maven, uses builder pattern, integrates with Spring dependency injection
-   - Go SDK: follows Go module conventions, uses functional options pattern, returns errors (no exceptions)
-   - Python SDK: pip-installable, Pythonic API with decorators for permission checks
-   - Node.js SDK: npm package, async/await, middleware pattern for Express/Fastify
-   - If the SDK feels foreign, teams resist adoption. And adoption was critical — this was meant to be the standard auth mechanism for the entire company.
+3. **Idiomatic integration matters for adoption.** The SDK had to feel native to each language's ecosystem. If the SDK feels foreign, teams resist adoption. And adoption was critical — this was meant to be the standard auth mechanism for the entire company.
+
+4. **Each SDK solved the same problem but leveraged each language's strengths.** The core job was always the same: fetch policies, cache them, evaluate them against a request context, return allow/deny. But *how* each SDK did it internally was tailored to what each language is good at:
+
+   **Java SDK:**
+   - Java excels at long-running, multi-threaded server applications. Its mature concurrency model (thread pools, `ExecutorService`, `CompletableFuture`) made it natural to run policy fetching and cache refresh in background threads without blocking the request path.
+   - Published to Maven Central. Used builder pattern for configuration (idiomatic Java). Integrated with Spring's dependency injection via `@Bean` configuration — teams added auth to their app with a single Spring config class.
+   - The JVM's JIT compilation meant the policy evaluation hot path got faster over time as the JVM optimized the bytecode. We pre-warmed the evaluation engine on startup to avoid cold-start latency spikes.
+   - **Where Java shines here:** Mature threading model, JIT optimization for hot paths, vast ecosystem for enterprise integration (Spring, Maven).
+
+   **Go SDK:**
+   - Go's goroutines and channels made concurrent policy fetching extremely lightweight — thousands of goroutines with minimal memory overhead compared to Java threads. Background cache refresh ran in a goroutine with no external dependency.
+   - Followed Go module conventions (`go get`). Used the functional options pattern for configuration (idiomatic Go: `NewClient(WithCacheTTL(300), WithFallbackPolicy(deny))`). Returned errors explicitly — no exceptions, no panics.
+   - Go compiles to a single static binary, so the SDK added zero runtime dependencies to the host application. No JVM, no runtime to manage.
+   - **Where Go shines here:** Lightweight concurrency (goroutines), zero-dependency static binary, explicit error handling that forces callers to deal with failures.
+
+   **Python SDK:**
+   - Python is single-threaded (GIL), so the cache refresh had to be designed differently — we used `threading.Timer` for periodic background refresh since the GIL doesn't block I/O-bound work, and the policy fetch is an I/O operation (HTTP call).
+   - pip-installable. Provided decorators for permission checks (`@require_permission("resource:action")`) — the most Pythonic way to express "this endpoint requires authorization." Also provided a context manager for more complex evaluation scenarios.
+   - Python's dynamic typing and introspection made it easy to build flexible condition matchers for the policy evaluation — pattern matching on arbitrary attributes without verbose type definitions.
+   - **Where Python shines here:** Expressiveness (decorators, context managers), rapid prototyping for data/ML teams that needed auth, dynamic typing for flexible policy conditions.
+
+   **Node.js SDK:**
+   - Node.js is single-threaded with an event loop — perfect for I/O-heavy operations like fetching policies from the central service. The async/non-blocking model meant policy fetches never blocked the event loop. Cache refresh used `setInterval` with the fetch wrapped in async/await.
+   - npm package. Provided Express/Fastify middleware (`app.use(authMiddleware({ policy: 'resource:action' }))`) — the idiomatic way to add cross-cutting concerns in Node.js web frameworks.
+   - Node.js apps tend to start and stop frequently (especially in serverless-like deployments), so the SDK had to handle cold starts gracefully — pre-loading the initial policy set on `require()` with a warm-up phase.
+   - **Where Node.js shines here:** Event loop for non-blocking I/O, middleware pattern for web frameworks, fast startup for ephemeral workloads.
 
 4. **Dependency isolation.** An SDK written in language X that gets imported into a language Y app brings X's entire runtime and dependency tree. A Go binary embedded in a Node.js app introduces libc dependencies, CGO compilation requirements, and a binary that's opaque to Node.js tooling (debugging, profiling, APM agents). Each native SDK keeps the dependency footprint minimal and compatible with the host ecosystem.
 
