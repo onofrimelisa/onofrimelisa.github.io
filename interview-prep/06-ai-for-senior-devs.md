@@ -1293,6 +1293,161 @@ When building systems that use LLMs:
 
 ---
 
+## Best Practices for AI-Assisted Development
+
+What separates a senior dev who uses AI effectively from one who wastes time and money: discipline, efficiency, and critical thinking.
+
+### Efficient Usage — Getting More Out of Every Interaction
+
+**1. Right model for the right task**
+
+Don't use Opus for everything. Match model capability to task complexity:
+
+| Task | Right model | Wrong model |
+|------|------------|-------------|
+| Rename variables, format code, simple boilerplate | Haiku (fast, cheap) | Opus (overkill) |
+| Implement a feature from a clear spec | Sonnet (good balance) | Haiku (may miss edge cases) |
+| Complex architecture, multi-file refactor, debugging deep issues | Opus (deep reasoning) | Haiku (will hallucinate or miss context) |
+| Batch processing 500 files | Haiku (cost-efficient at scale) | Opus (10-50x more expensive for the same work) |
+
+**2. Manage context deliberately**
+
+The #1 factor in output quality is what you put in the context window:
+
+- **Start conversations clean.** Don't let old, irrelevant context accumulate. Start a new session for new tasks.
+- **Front-load the important context.** Put the most relevant files, constraints, and architecture decisions first. Models pay more attention to early context.
+- **Don't dump entire files when you need one function.** Point the agent to specific lines, functions, or sections.
+- **Use CLAUDE.md / project docs as persistent context.** These load automatically and keep the agent aligned with your project without you repeating yourself every session.
+- **Keep conversations focused.** One task per conversation. Switching topics mid-conversation dilutes context and increases errors.
+
+**3. Prompt with precision**
+
+- **State the constraint before the task.** "Without changing the public interface, refactor the internal caching logic" is better than "refactor the caching logic" (which might change the API).
+- **Give examples of desired output.** One example of the pattern you want is worth 100 words of explanation.
+- **Be explicit about what you DON'T want.** "Don't add error handling. Don't create abstractions. Don't add comments." prevents over-engineering.
+- **Ask for a plan before implementation.** "First outline your approach, then implement" catches bad strategies before they become bad code.
+
+**4. Use the agentic loop, don't fight it**
+
+- Let the agent explore the codebase instead of pasting code into chat. Agents are designed to navigate, search, and discover context.
+- Let it iterate: run tests, observe failures, fix, re-run. This is faster than you debugging the AI's output manually.
+- Trust the loop but set boundaries: use hooks and permission systems to prevent destructive actions.
+
+### Reducing Costs — Token Economy
+
+**1. Understand how costs work**
+
+LLM costs are based on tokens consumed:
+- **Input tokens:** Everything you send to the model (prompt, context, system instructions)
+- **Output tokens:** Everything the model generates in response
+- Input is cheaper than output (typically 3-5x cheaper)
+- Reasoning/thinking tokens (extended thinking) count separately and add cost
+
+**2. Tactical cost reduction**
+
+- **Use caching.** Many APIs support prompt caching — identical prefixes don't get re-processed. Keep your system prompt and project context stable to maximize cache hits.
+- **Reduce unnecessary context.** Every extra file you load into context costs tokens. Be surgical about what you include.
+- **Use fast/cheap models for iteration.** Draft with Haiku or Sonnet, polish with Opus. Don't iterate 10 times with the most expensive model.
+- **Batch similar tasks.** Instead of 10 separate conversations to rename 10 functions, do it in one conversation with a clear pattern instruction.
+- **Stop early when stuck.** If the model is going in circles (generating wrong code, hallucinating APIs), don't keep retrying the same prompt. Change your approach, add more context, or switch models.
+- **Avoid "explain everything" prompts.** "Implement X" costs fewer output tokens than "Implement X and explain every decision you made." Only ask for explanations when you need them.
+
+**3. Monitor and set limits**
+
+- Track token usage per project/team. Most API dashboards show this.
+- Set spending alerts. LLM costs can spike when an agent enters an infinite loop or processes large files repeatedly.
+- Review high-cost sessions: learn which patterns burn tokens unnecessarily so you can avoid them.
+
+### Avoiding Hallucinations — The Senior Dev's Critical Eye
+
+Hallucinations are not bugs — they're a fundamental property of how LLMs work. The model generates statistically plausible text, not verified facts. A senior dev must build habits that catch them.
+
+**1. Know where hallucinations are most likely**
+
+| High risk | Lower risk |
+|-----------|------------|
+| API names, function signatures, library methods | General programming patterns and logic |
+| Package versions and compatibility | Language syntax (well-represented in training data) |
+| Specific configuration options or flags | Data structure design |
+| URLs, documentation references | Algorithm implementation |
+| Facts about your specific codebase | Common design patterns |
+| Recent/post-training-cutoff information | Well-established best practices |
+
+**2. Verification habits**
+
+- **Always run the code.** Never accept AI-generated code without executing it. "It looks right" is not the same as "it works."
+- **Check imports and dependencies.** The model may reference packages that don't exist, or use the wrong version of an API.
+- **Verify against official docs.** If the AI says "use `library.method()`", check that method actually exists in your version of the library.
+- **Test edge cases explicitly.** AI handles happy paths well but often misses: null/empty inputs, concurrency issues, boundary values, error states.
+- **Be extra skeptical of confident-sounding output.** LLMs never say "I'm not sure." They present hallucinations with the same confidence as correct answers.
+
+**3. Structural mitigation**
+
+- **Provide strong context.** The more relevant code, docs, and constraints you give the model, the less room it has to hallucinate. Ground it in your reality.
+- **Use RAG for domain-specific knowledge.** For questions about your codebase, libraries, or internal tools, retrieve the actual source code/docs and include them in context.
+- **Ask the model to cite its sources.** "Show me where in the code this function is defined" forces it to reference real files instead of inventing.
+- **Use structured outputs.** JSON schemas, typed responses, and constrained formats reduce free-form hallucination.
+- **Break complex questions into smaller ones.** The model is less likely to hallucinate on simple, focused questions than on broad, ambiguous ones.
+
+### Code Quality with AI — Maintaining Engineering Standards
+
+**1. Review AI code like you'd review a junior dev's PR**
+
+- **Does it follow project conventions?** Naming, file structure, error handling patterns.
+- **Is it over-engineered?** AI loves adding abstractions, utility functions, and error handling you didn't ask for. Strip it down.
+- **Are there security issues?** Check for SQL injection, XSS, hardcoded credentials, insecure defaults, missing input validation.
+- **Does it handle errors correctly?** AI often catches exceptions too broadly or silently swallows errors.
+- **Is it testable?** AI sometimes generates tightly coupled code that's hard to test or mock.
+
+**2. Don't let AI erode your architecture**
+
+- **Enforce existing patterns.** The AI doesn't know your architecture unless you tell it. Use CLAUDE.md, skills, and explicit constraints to keep it aligned.
+- **Resist "it works so ship it."** Just because code compiles and tests pass doesn't mean it fits your system's architecture, performance model, or maintenance requirements.
+- **Watch for dependency bloat.** AI may suggest importing heavy libraries for tasks you could solve with a few lines of code.
+- **Guard against inconsistency.** If different team members use AI with different prompts, you'll get inconsistent patterns across the codebase. Standardize with shared skills and project docs.
+
+**3. Maintain your own technical depth**
+
+- **Understand what the AI writes.** If you can't explain a piece of AI-generated code to a colleague, you shouldn't commit it.
+- **Keep coding manually sometimes.** Don't let AI atrophy your core skills. Write critical code yourself, use AI for the rest.
+- **Stay current with your stack.** Read changelogs, understand new features, keep up with security advisories. AI's training data has a cutoff — you need to know what's changed since then.
+- **Read the AI's code, don't just run it.** Line-by-line reading is how you catch subtle bugs, wrong assumptions, and architectural drift.
+
+### Security Practices with AI
+
+- **Never paste secrets, credentials, or PII into AI prompts.** Use environment variables and references instead.
+- **Review all AI-generated code for OWASP top 10 vulnerabilities.** AI frequently generates code with injection flaws, broken auth, or insecure defaults.
+- **Don't trust AI for cryptography.** Always use well-established libraries. AI may suggest rolling your own crypto or using deprecated algorithms.
+- **Validate AI-suggested dependencies.** Check that packages exist (typosquatting is real), are maintained, and have no known CVEs.
+- **Be careful with AI in CI/CD.** AI-generated scripts that run in pipelines can introduce command injection or privilege escalation if not reviewed.
+
+### Team Practices — Scaling AI Across the Team
+
+- **Maintain a shared CLAUDE.md (or equivalent).** Single source of truth for project context, conventions, and patterns. Update it as the codebase evolves.
+- **Build and share skills.** Encode team workflows, coding standards, and review checklists as skills so every dev gets the same AI assistance quality.
+- **Define what's AI-appropriate.** Create team guidelines for which tasks are good candidates for AI (boilerplate, tests, refactoring) and which require manual work (security-critical paths, novel architecture).
+- **Review AI-generated code with the same rigor as human code.** No shortcuts because "the AI wrote it."
+- **Share effective prompts.** When someone finds a prompt pattern that works well, share it. Treat prompts as team knowledge.
+- **Retrospect on AI failures.** When AI-generated code causes a bug or incident, do a mini retro: what went wrong, how to prevent it next time, should we add a skill or hook?
+- **Onboard with AI in mind.** New team members should learn the AI tooling setup (MCP servers, skills, hooks, CLAUDE.md) as part of onboarding.
+
+### Anti-Patterns — What NOT to Do
+
+| Anti-pattern | Why it's bad | What to do instead |
+|-------------|-------------|-------------------|
+| **Blindly accepting AI output** | Hallucinations, security holes, wrong patterns | Review every change. Run tests. Verify APIs. |
+| **Using the most expensive model for everything** | Wastes money, not faster for simple tasks | Match model to task complexity |
+| **Dumping entire codebase into context** | Dilutes quality, wastes tokens, hits limits | Feed only relevant files and context |
+| **Not using project docs (CLAUDE.md)** | AI reinvents patterns every session | Maintain persistent project context |
+| **Copy-pasting code without understanding** | Technical debt, security risk, unmaintainable | Understand before committing |
+| **Ignoring AI's limitations** | Over-reliance, missed hallucinations | Know where AI struggles, verify there |
+| **Using AI for novel architecture without own thinking** | AI gives generic/textbook answers, not context-specific ones | Think first, use AI to validate and implement |
+| **Same prompt 10 times expecting different results** | Wastes tokens, frustrating | Change approach, add context, try different model |
+| **Skipping tests because "AI is smart"** | AI makes mistakes like any developer | TDD applies more, not less, with AI code |
+| **Not maintaining technical depth** | Can't verify AI output, become a bottleneck | Keep coding, keep learning, stay current |
+
+---
+
 ## Common Interview Questions & Answers
 
 ### Q: "How do you use AI in your daily development workflow?"
