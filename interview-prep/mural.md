@@ -321,6 +321,183 @@ spec:
 
 ---
 
+### Domain Knowledge: Auth & Access Control
+
+Everything a senior engineer should know about the identity and access control domain. Use this to demonstrate you can contribute to Mural's IAM platform from day one — not just as a generalist backend engineer, but as someone who understands the problem space deeply.
+
+#### The Core Problem
+
+Every multi-user application eventually faces the same two questions:
+1. **Who is this person?** (Authentication)
+2. **What are they allowed to do?** (Authorization)
+
+These sound simple, but at enterprise scale they become some of the hardest problems in software engineering. The reason: auth is a **cross-cutting concern that touches every feature**, it's **security-critical** (a bug means data leaks or unauthorized access), it's **in the critical path** of every request (performance matters), and it must **scale with organizational complexity** (not just traffic).
+
+For a product like Mural — used by 50%+ of Fortune 100 — auth is the foundation that makes enterprise sales possible. No SSO, no SCIM, no fine-grained permissions → no enterprise deal.
+
+#### Authentication: The Hard Parts
+
+Authentication seems solved ("just use OAuth") but the real-world challenges are subtle:
+
+**1. Identity Federation — Who owns the user's identity?**
+
+Enterprise customers don't want their employees creating Mural-specific passwords. They want their existing corporate identity (Okta, Azure AD, Google Workspace) to be the single source of truth. This means:
+- **SAML 2.0:** The legacy standard. XML-based, redirect-heavy, but deeply entrenched in enterprise. Every large company has a SAML-capable IdP. Supporting SAML is table stakes for enterprise sales.
+- **OIDC (OpenID Connect):** The modern standard. Built on OAuth 2.0, JSON/JWT-based, simpler to implement. Preferred by newer IdPs and SaaS products.
+- **The challenge:** Supporting both protocols simultaneously, handling the subtle differences in assertion formats, clock skew tolerance, signature validation, and redirect flows. Each enterprise IdP has its own quirks — Azure AD behaves differently from Okta, which behaves differently from PingFederate.
+- **My experience:** At MeLi the auth platform had to integrate with multiple identity sources. At Emi Labs I dealt with enterprise client IdPs for the recruitment platform. The pattern is always the same: abstract the protocol behind a common interface and handle IdP-specific quirks in adapter layers.
+
+**2. Multi-Factor Authentication (MFA) — Balancing security with usability**
+
+- **The tension:** Enterprise security teams want MFA everywhere. Users want frictionless access. The product must satisfy both.
+- **MFA methods:** TOTP (Google Authenticator), WebAuthn/FIDO2 (hardware keys, biometrics), SMS (insecure but still required by some), push notifications.
+- **Adaptive MFA:** Don't prompt MFA on every login — evaluate risk signals (new device, unusual location, sensitive operation) and only challenge when the risk score exceeds a threshold. This is where auth becomes an ML/heuristics problem.
+- **Recovery flows:** What happens when a user loses their MFA device? Recovery codes, admin-assisted reset, backup methods. Each is a potential security hole if not designed carefully.
+
+**3. Session Management — The invisible complexity**
+
+Sessions seem trivial until you handle edge cases at scale:
+
+- **Token strategy:** JWTs (stateless, scalable, but hard to revoke) vs. opaque tokens with server-side sessions (revocable, but need a session store). Many systems use a hybrid: short-lived JWTs for API calls + a server-side session for the web app.
+- **Token refresh:** Access tokens expire quickly (15min) to limit damage if stolen. Refresh tokens live longer but must be rotated on every use (rotation prevents replay attacks). Handling the race condition where two tabs refresh simultaneously is a classic bug.
+- **Session revocation:** "Show me all active sessions for user X" and "revoke all sessions now" are hard requirements for enterprise admin. With pure JWTs this requires a revocation list (negating some of the stateless benefit). With server-side sessions it's a DB delete.
+- **Cross-device sessions:** A user logged in on laptop, phone, and tablet. They change their password → all other sessions must be invalidated. They get deprovisioned via SCIM → all sessions die immediately.
+- **Session fixation and hijacking:** The classic attacks. Mitigations: regenerate session ID on login, bind sessions to client fingerprint (IP + user-agent), use secure/httpOnly/sameSite cookie attributes.
+
+**4. User Provisioning (SCIM) — Automating the lifecycle**
+
+SCIM is the protocol that keeps Mural's user database in sync with the enterprise customer's directory:
+
+- **Provisioning:** Employee joins the company → IdP sends SCIM `POST /Users` → Mural creates the account with the right role and workspace.
+- **Updates:** Employee changes department → IdP sends SCIM `PATCH /Users/{id}` → Mural updates their group memberships and permissions.
+- **Deprovisioning:** Employee leaves → IdP sends SCIM `PATCH /Users/{id}` with `active: false` → Mural deactivates the account, revokes all sessions, removes from shared content where appropriate.
+- **The challenge:** SCIM implementations vary wildly across IdPs. Okta's SCIM client behaves differently from Azure AD's. Some send full replacement payloads, others send minimal patches. Some respect the spec, others don't. Robust SCIM implementation means defensive parsing, idempotent operations, and extensive logging for troubleshooting enterprise onboarding issues.
+- **Group provisioning:** SCIM also handles groups (`/Groups`). Enterprise customers map their AD groups to Mural roles/workspaces. When a group membership changes in AD, SCIM propagates it to Mural. The mapping logic between "corporate group" and "Mural permission" is product-specific and often the source of enterprise support tickets.
+
+#### Authorization: Models and Trade-offs
+
+Authorization is where the permission model lives. The choice of model determines what "permissions" look like for end users, how easy it is to add new features, and how the system scales.
+
+**1. RBAC (Role-Based Access Control)**
+
+The most common model. Users are assigned roles, roles have permissions.
+
+```
+User → Role → Permissions
+          │
+  "Workspace Admin" → [manage_members, manage_billing, manage_settings, view_all_content]
+  "Member"          → [create_murals, edit_own_murals, comment]
+  "Guest"           → [view_shared_murals, comment]
+```
+
+- **Pros:** Simple to understand, easy to audit ("who has admin access?"), maps well to organizational structure.
+- **Cons:** Role explosion — as the product grows, you need more granular roles. "Can edit murals in workspace X but not workspace Y" doesn't fit cleanly into static roles. You end up with "Workspace-X-Editor" and "Workspace-Y-Viewer" — dozens of roles that are hard to manage.
+- **Where it works:** Mural likely uses RBAC as the user-facing model (Owner, Admin, Member, Guest). Enterprise customers understand roles.
+
+**2. ABAC (Attribute-Based Access Control)**
+
+Permissions based on attributes of the subject, resource, action, and environment.
+
+```
+ALLOW if:
+  subject.role == "member"
+  AND resource.workspace == subject.workspace
+  AND action == "edit"
+  AND environment.time IN business_hours    (optional)
+```
+
+- **Pros:** Extremely flexible. Can express any permission rule without creating new roles. Handles multi-tenancy naturally ("user can only access resources in their workspace").
+- **Cons:** Harder to reason about — "what can user X do?" requires evaluating all policies against all resources. Harder to audit. Performance cost if policies are complex.
+- **Where it works:** Under the hood, the permission engine. Even if users see "roles," the internal evaluation may be attribute-based.
+- **My experience:** MeLi's auth platform was policy-based (closer to ABAC) — policies with conditions on principals, resources, and actions. The user-facing layer was roles; the engine underneath was attribute evaluation.
+
+**3. ReBAC (Relationship-Based Access Control)**
+
+Permissions based on relationships between objects. Made popular by Google Zanzibar (used by Google Drive, YouTube, etc.).
+
+```
+document:budget-2024#viewer@user:melisa         → Melisa can view budget-2024
+workspace:design-team#member@user:melisa        → Melisa is a member of design-team
+workspace:design-team#parent@org:acme           → design-team belongs to org acme
+```
+
+Permission checks traverse the relationship graph: "Can Melisa edit this mural?" → Is Melisa a member of a workspace that contains this mural, with a role that grants edit?
+
+- **Pros:** Models real-world sharing naturally (Google Docs-style). Handles inheritance ("workspace admin → can manage all murals in workspace"). Scales to complex sharing hierarchies.
+- **Cons:** Requires a relationship graph store (specialized infrastructure). Evaluation involves graph traversal — performance depends on graph depth. More complex to implement and debug.
+- **Where it works:** Products with sharing/collaboration (Google Drive, Notion, Figma — and likely Mural). If Mural has "share this mural with user X" or "share with workspace Y," that's relationship-based access control.
+- **Relevance to Mural:** A visual collaboration tool almost certainly has sharing semantics. The permission model likely combines RBAC (workspace roles) with ReBAC (content sharing). Understanding both gives you the vocabulary to discuss Mural's specific model intelligently.
+
+**4. The Hybrid Reality**
+
+No real product uses a pure model. Enterprise SaaS products typically combine:
+- **RBAC** for the user-facing permission structure (workspace roles, org-level roles)
+- **ABAC** for the policy engine that evaluates permissions (conditions, context)
+- **ReBAC** for content sharing and collaboration permissions (share with user/group/workspace)
+
+The art is in designing a system where these layers compose cleanly — the user sees simple roles, the admin sees manageable policies, and the engine evaluates efficiently under the hood.
+
+#### Common Challenges in Enterprise IAM (and how to solve them)
+
+**1. Permission evaluation performance**
+
+- **Problem:** Every API call needs an authorization check. At scale, this is millions of evaluations per second. The permission check can't add meaningful latency.
+- **Solutions:**
+  - Cache aggressively: user permissions, role definitions, policy evaluation results. Most permissions don't change frequently.
+  - Pre-compute permission sets: on role assignment, compute and cache the full set of allowed actions. Evaluation becomes a set lookup instead of policy traversal.
+  - Push vs. pull: instead of the app asking "can user X do Y?" on every request, push the user's permission set to the app on login and on changes. The app evaluates locally.
+- **My experience:** At MeLi this was the entire challenge — sub-millisecond evaluation in the critical path. SDK caching + sidecar deployment + pre-compiled policies.
+
+**2. Permission inheritance and hierarchy**
+
+- **Problem:** Mural has a hierarchy: Organization → Workspace → Room → Mural. Permissions at a higher level should flow down. An org admin should be able to manage all workspaces without being explicitly added to each one.
+- **Solutions:**
+  - Define clear inheritance rules: "org admin inherits workspace admin on all workspaces in the org."
+  - Implement inheritance at the evaluation engine level, not by duplicating permissions at every level.
+  - Allow overrides: "org admin everywhere, except workspace X where they're read-only" (explicit deny overrides inherited allow).
+- **The edge cases:** What happens when a user has conflicting permissions at different levels? Explicit deny at workspace level vs. allow at org level. The resolution strategy must be documented and consistent.
+
+**3. The "who has access to what?" audit problem**
+
+- **Problem:** Enterprise security teams need to answer: "List every user who can access document X" or "Show me everything user Y has access to." With complex permission models (inheritance, sharing, group memberships), computing this is non-trivial.
+- **Solutions:**
+  - Materialized permission views: pre-compute and store the effective permissions. Update them asynchronously when permissions change.
+  - Audit log: record every permission grant, revocation, and change. Not just "user X was given admin" but "user X was given admin by user Y at timestamp Z via SCIM sync from Okta."
+  - Access review workflows: periodic campaigns where workspace owners review and confirm or revoke access. Required by SOC 2 and many enterprise compliance frameworks.
+
+**4. Tenant isolation in multi-tenant SaaS**
+
+- **Problem:** Company A's data must never be visible to Company B, even if there's a bug in the permission evaluation. This is the single most critical security requirement in enterprise SaaS.
+- **Solutions:**
+  - Defense in depth: tenant isolation at the application layer (permission checks), at the data layer (tenant ID in every query), and at the infrastructure layer (row-level security in the database).
+  - Never rely on a single layer. A bug in the application permission check should still be caught by the database-level tenant filter.
+  - Test with adversarial scenarios: "What if a user crafts a request with another tenant's workspace ID?" — the system must reject it at multiple layers.
+
+**5. Balancing security with user experience**
+
+- **Problem:** Security teams want strict controls. Product teams want frictionless experiences. Both are right.
+- **Solutions:**
+  - Risk-based authentication: low-risk actions (view a mural) → no extra challenge. High-risk actions (invite external user, export data, change billing) → step-up authentication (re-enter password, MFA challenge).
+  - Progressive disclosure of admin controls: don't overwhelm workspace admins with 50 settings. Show the essential ones, hide advanced controls behind "Advanced Security Settings."
+  - Sensible defaults: new workspaces should be secure by default (e.g., external sharing disabled, MFA encouraged). Admins can relax controls deliberately.
+- **My experience:** At UenoBank, the insurance flow had similar tension — security requirements (identity verification, regulatory compliance) vs. user experience (fast policy issuance). The solution was the same: async flows with step-up verification only when the risk level required it.
+
+**6. Backward compatibility when evolving the permission model**
+
+- **Problem:** The permission model evolves as the product grows. Adding a new permission, splitting an existing one, or changing the hierarchy can break existing integrations, scripts, and enterprise configurations.
+- **Solutions:**
+  - Additive changes only: adding new permissions is safe. Removing or renaming is a migration.
+  - Permission aliasing: old permission name maps to the new one during a transition period.
+  - Versioned admin APIs: enterprise customers using the admin API shouldn't break when the model evolves.
+  - Feature flags for permission changes: roll out to a subset of tenants first, validate, then promote.
+- **My experience:** At NocNoc, evolving the seller API while maintaining backward compatibility for existing integrations. Same discipline: additive changes, versioning, feature flags.
+
+#### What I'd Say in the Interview
+
+> "The auth domain is something I've lived in — not just consumed as an API, but designed and built from the evaluation engine up. I understand the trade-offs between RBAC and ABAC, the challenge of making permission evaluation fast in the critical path, and the enterprise requirements like SSO, SCIM, and audit. What I find exciting about Mural's IAM specifically is the collaboration dimension — permission models for shared content (who can view/edit this mural, how does workspace-level access compose with direct sharing) are more interesting than simple CRUD permissions. It's closer to what Google solved with Zanzibar, and I'd love to dig into how Mural approaches it."
+
+---
+
 ### Technical Topics the EM Might Probe
 
 #### Authentication vs Authorization
