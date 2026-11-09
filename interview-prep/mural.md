@@ -117,14 +117,14 @@ This is the most relevant experience for the Admin & IAM role. The EM will likel
 
 #### What I Built (2 minutes)
 
-> "I owned the development of the multi-language SDKs — Java, Go, Python, and Node.js. Each SDK had to:
-> - Provide **consistent policy evaluation** across languages while respecting each language's idioms and conventions
-> - Handle **local caching of policies** to minimize network calls — policies were fetched and cached, with invalidation on policy changes
-> - Support **fallback behavior** — if the central policy service was unreachable, the SDK could evaluate cached policies instead of failing open or failing closed (configurable per application)
+> "I owned the development of the multi-language SDKs — Java, Go, Python, and Node.js. The SDKs were **thin clients** that abstracted the communication with the central policy evaluation service. On every authorization check, the SDK made a network call to the service, which evaluated the policy and returned allow/deny. Each SDK had to:
+> - Provide a **clean, idiomatic API** for each language — middleware for Node.js, decorators for Python, Spring integration for Java, functional options for Go
+> - Handle **response caching** to reduce network round-trips — caching evaluation results for repeated checks with the same policy + context, with TTL-based expiration
+> - Implement **resilience patterns** — retries with backoff for transient failures, circuit breaker when the central service was degraded, and configurable fallback behavior (fail open or fail closed) when the service was completely unreachable
 >
-> I also worked on the **Docker sidecar deployment model** — an alternative where the policy evaluation engine runs as a sidecar container alongside the application. This was critical for teams that didn't have a mature SDK for their language, or that needed to decouple the auth evaluation lifecycle from their application's deployment cycle.
+> I also worked on the **Docker sidecar deployment model** — for teams where even the optimized SDK latency was too much. The sidecar runs the full policy evaluation engine as a container alongside the application in the same pod. Instead of crossing the network to reach the central service, the app calls the sidecar on localhost via gRPC. The sidecar fetches and caches policies from the central service in the background, but the actual evaluation happens locally — eliminating the network hop from the request path entirely.
 >
-> For validation, I **designed and ran stress tests** simulating real-world MELI traffic patterns. We identified bottlenecks in the policy evaluation hot path and optimized accordingly — things like pre-compiling policy rules, efficient data structures for policy lookup, and minimizing allocations in the evaluation loop.
+> For validation, I **designed and ran stress tests** simulating real-world MELI traffic patterns. We identified bottlenecks in both the SDK path (network latency, serialization overhead) and the sidecar path (policy evaluation hot path, memory for cached policies), optimizing each accordingly.
 >
 > I also participated in **on-call rotations** for a system in the critical path. Production incidents meant immediate impact on millions of users — there was no 'we'll fix it tomorrow'."
 
@@ -141,10 +141,10 @@ This is the most relevant experience for the Admin & IAM role. The EM will likel
 > "We had a shared test suite — a set of policy evaluation scenarios (policy + request → expected result) defined in a language-agnostic format (JSON). Every SDK ran the same test suite. If a test passed in Java but failed in Go, we had a bug. This was the contract — the test suite was the source of truth, not any individual SDK implementation."
 
 **"What was the hardest production incident you handled on-call?"**
-> "The hardest ones were cache invalidation issues — a policy was updated but the cache in some SDK instances hadn't refreshed yet, causing intermittent authorization failures. Users would get denied access to resources they should have access to. The debugging was tricky because it was non-deterministic and depended on which instance served the request. We improved the cache invalidation mechanism from TTL-based to event-driven (pub/sub notification on policy changes) to reduce the staleness window."
+> "The hardest ones were cache staleness issues. The SDKs cached evaluation responses with a TTL — so if a policy was updated in the central service, SDK instances would keep returning the old (cached) result until the TTL expired. This caused intermittent authorization failures: a user's permissions were updated but some app instances still served stale deny responses, while others (with expired cache) returned the correct allow. The debugging was tricky because it was non-deterministic — it depended on which app instance served the request and when its cache last refreshed. We improved the invalidation mechanism from pure TTL-based to event-driven: the central service published policy change events, and SDKs subscribed to invalidate specific cache entries immediately. This drastically reduced the staleness window from minutes (TTL) to seconds (event propagation)."
 
 **"How did the sidecar model work? Why not just use the SDK?"**
-> "The SDK is actually the fastest option — fully in-process, zero network hop. The sidecar wasn't about latency, it was about solving three other problems. First, **language coverage**: some teams used languages or frameworks where the SDK wasn't available or mature yet. The sidecar gave them auth evaluation immediately — just add a container and make a localhost gRPC call. Second, **deployment independence**: with SDKs, shipping a critical fix meant waiting for 50+ teams to update their dependency and redeploy. With the sidecar, the platform team ships once and it's live everywhere. Third, **resource isolation**: the sidecar runs in its own container, so a memory leak or CPU spike in the policy evaluation engine doesn't affect the main application. The trade-off was the reverse — the sidecar adds ~0.1-0.5ms of latency (localhost gRPC) and operational complexity (another container to manage), so teams with a mature SDK and strict latency budgets preferred the SDK."
+> "The SDK was a thin client — it made a network call to the central policy evaluation service on every auth check. That worked fine for most applications, but for latency-sensitive services the network round-trip was too expensive. The sidecar solved this by running the full evaluation engine locally as a container in the same pod. The app calls the sidecar on localhost via gRPC instead of crossing the network. The sidecar fetches policies from the central service in the background, but evaluation happens locally — no network hop in the request path. It also gave us three bonus advantages: **language coverage** (any language can call gRPC on localhost, no SDK needed), **deployment independence** (platform team updates the sidecar without app teams redeploying), and **resource isolation** (evaluation runs in its own container). The trade-off was operational complexity — another container to deploy, monitor, and debug per pod."
 
 ---
 
@@ -154,59 +154,59 @@ This section expands on two key architectural decisions from the MeLi authorizat
 
 #### Why Multi-Language SDKs?
 
-**The fundamental question: Can't an app in language X just call an SDK written in language Y?**
+**What the SDKs actually did:**
 
-No — not for this use case. Here's why:
+The SDKs were **thin clients** — they abstracted the network communication with the central policy evaluation service. On every authorization check, the SDK made a network call to the service, sent the request context (who, what action, which resource), and received an allow/deny response. The SDKs also handled resilience (retries, circuit breaker, fallback behavior) and response caching.
 
-1. **In-process evaluation is the whole point.** The SDK's job is to evaluate authorization policies locally, inside the application's process, without a network call. If a Java app had to call a Python SDK, that call would go over the network (or through some FFI bridge), which defeats the purpose. The latency budget for policy evaluation was sub-millisecond — a network hop to another process adds milliseconds at minimum.
+The evaluation logic itself lived in the central service, not in the SDKs. This was a deliberate design decision: maintaining the evaluation engine in one place (the service) is far simpler than replicating it across four language implementations.
 
-2. **FFI (Foreign Function Interface) is fragile and costly.** You could theoretically embed a Go evaluation engine inside a Java app via CGO/JNI, but:
-   - The operational complexity is enormous — cross-compilation, memory management across runtimes, debugging crashes across language boundaries
-   - Each language runtime has its own memory model, garbage collector, and threading model. Mixing them creates unpredictable behavior under load.
-   - Deployment becomes a nightmare: now every Java app ships with a Go runtime embedded.
-   - This approach is used by some projects (e.g., SQLite), but it makes sense for stable, battle-tested C libraries — not for a policy engine that evolves frequently.
+**The fundamental question: Can't an app just call the central service directly via HTTP? Why do we need SDKs at all?**
 
-3. **Idiomatic integration matters for adoption.** The SDK had to feel native to each language's ecosystem. If the SDK feels foreign, teams resist adoption. And adoption was critical — this was meant to be the standard auth mechanism for the entire company.
+Technically yes — any app can make an HTTP call. But that pushes all the complexity onto every consuming team:
 
-4. **Each SDK solved the same problem but leveraged each language's strengths.** The core job was always the same: fetch policies, cache them, evaluate them against a request context, return allow/deny. But *how* each SDK did it internally was tailored to what each language is good at:
+1. **Resilience logic is non-trivial and must be consistent.** Every team would need to implement retries with backoff, circuit breaker when the service is degraded, configurable fallback behavior (fail open vs. fail closed), and response caching. If each team rolls their own, you get 50 different implementations with inconsistent behavior — some silently failing open (security hole), others failing closed on transient errors (availability issue). The SDK standardizes this.
+
+2. **Idiomatic integration matters for adoption.** The SDK had to feel native to each language's ecosystem. If the SDK feels foreign, teams resist adoption. And adoption was critical — this was meant to be the standard auth mechanism for the entire company. A raw HTTP call doesn't integrate cleanly with framework patterns.
+
+3. **Each SDK solved the same problem but leveraged each language's strengths.** The core job was always the same: call the central service, cache responses, handle failures, expose a clean API. But *how* each SDK did it internally was tailored to what each language is good at:
 
    **Java SDK:**
-   - Java excels at long-running, multi-threaded server applications. Its mature concurrency model (thread pools, `ExecutorService`, `CompletableFuture`) made it natural to run policy fetching and cache refresh in background threads without blocking the request path.
+   - Java excels at long-running, multi-threaded server applications. Its mature concurrency model (thread pools, `ExecutorService`, `CompletableFuture`) made it natural to run auth calls asynchronously without blocking the request thread, and to manage the response cache with concurrent-safe data structures (`ConcurrentHashMap`).
    - Published to Maven Central. Used builder pattern for configuration (idiomatic Java). Integrated with Spring's dependency injection via `@Bean` configuration — teams added auth to their app with a single Spring config class.
-   - The JVM's JIT compilation meant the policy evaluation hot path got faster over time as the JVM optimized the bytecode. We pre-warmed the evaluation engine on startup to avoid cold-start latency spikes.
-   - **Where Java shines here:** Mature threading model, JIT optimization for hot paths, vast ecosystem for enterprise integration (Spring, Maven).
+   - The JVM's JIT compilation optimized the SDK's hot paths (serialization, cache lookups) over time. We pre-warmed connections on startup to avoid cold-start latency spikes on the first auth calls.
+   - **Where Java shines here:** Mature threading model for async calls, concurrent data structures for caching, vast ecosystem for enterprise integration (Spring, Maven).
 
    **Go SDK:**
-   - Go's goroutines and channels made concurrent policy fetching extremely lightweight — thousands of goroutines with minimal memory overhead compared to Java threads. Background cache refresh ran in a goroutine with no external dependency.
+   - Go's goroutines made it trivial to handle auth calls concurrently — fire the network call in a goroutine, check the cache first, fall back to the call if needed. Background cache refresh ran in a goroutine with minimal memory overhead.
    - Followed Go module conventions (`go get`). Used the functional options pattern for configuration (idiomatic Go: `NewClient(WithCacheTTL(300), WithFallbackPolicy(deny))`). Returned errors explicitly — no exceptions, no panics.
-   - Go compiles to a single static binary, so the SDK added zero runtime dependencies to the host application. No JVM, no runtime to manage.
-   - **Where Go shines here:** Lightweight concurrency (goroutines), zero-dependency static binary, explicit error handling that forces callers to deal with failures.
+   - Go compiles to a single static binary with the HTTP client built in — the SDK added zero external runtime dependencies.
+   - **Where Go shines here:** Lightweight concurrency (goroutines), zero-dependency static binary, explicit error handling that forces callers to deal with failures, built-in HTTP client.
 
    **Python SDK:**
-   - Python is single-threaded (GIL), so the cache refresh had to be designed differently — we used `threading.Timer` for periodic background refresh since the GIL doesn't block I/O-bound work, and the policy fetch is an I/O operation (HTTP call).
+   - Python is single-threaded (GIL), so the network calls had to be managed carefully. We used `requests` for synchronous calls with connection pooling, and provided an async variant using `aiohttp` for teams running async frameworks (FastAPI, aiohttp).
    - pip-installable. Provided decorators for permission checks (`@require_permission("resource:action")`) — the most Pythonic way to express "this endpoint requires authorization." Also provided a context manager for more complex evaluation scenarios.
-   - Python's dynamic typing and introspection made it easy to build flexible condition matchers for the policy evaluation — pattern matching on arbitrary attributes without verbose type definitions.
-   - **Where Python shines here:** Expressiveness (decorators, context managers), rapid prototyping for data/ML teams that needed auth, dynamic typing for flexible policy conditions.
+   - Cache was thread-safe using `threading.Lock` for the sync variant and simple dict for the async variant (single-threaded event loop).
+   - **Where Python shines here:** Expressiveness (decorators, context managers), dual sync/async support, rapid adoption for data/ML teams that needed auth.
 
    **Node.js SDK:**
-   - Node.js is single-threaded with an event loop — perfect for I/O-heavy operations like fetching policies from the central service. The async/non-blocking model meant policy fetches never blocked the event loop. Cache refresh used `setInterval` with the fetch wrapped in async/await.
+   - Node.js is single-threaded with an event loop — the async/non-blocking model meant auth calls (network I/O) never blocked the event loop. Response caching used a simple in-memory Map with TTL (single-threaded, no concurrency issues).
    - npm package. Provided Express/Fastify middleware (`app.use(authMiddleware({ policy: 'resource:action' }))`) — the idiomatic way to add cross-cutting concerns in Node.js web frameworks.
-   - Node.js apps tend to start and stop frequently (especially in serverless-like deployments), so the SDK had to handle cold starts gracefully — pre-loading the initial policy set on `require()` with a warm-up phase.
-   - **Where Node.js shines here:** Event loop for non-blocking I/O, middleware pattern for web frameworks, fast startup for ephemeral workloads.
+   - Node.js apps tend to start and stop frequently (especially in serverless-like deployments), so the SDK handled cold starts gracefully — warming up the connection pool and pre-fetching common policy evaluations on `require()`.
+   - **Where Node.js shines here:** Event loop for non-blocking I/O, middleware pattern for web frameworks, simple caching (no concurrency), fast startup for ephemeral workloads.
 
-4. **Dependency isolation.** An SDK written in language X that gets imported into a language Y app brings X's entire runtime and dependency tree. A Go binary embedded in a Node.js app introduces libc dependencies, CGO compilation requirements, and a binary that's opaque to Node.js tooling (debugging, profiling, APM agents). Each native SDK keeps the dependency footprint minimal and compatible with the host ecosystem.
+4. **Dependency isolation.** A single "universal" SDK written in one language would force its runtime onto every consuming app. A Go binary embedded in a Node.js app introduces libc dependencies, CGO compilation requirements, and a binary that's opaque to Node.js tooling (debugging, profiling, APM agents). Each native SDK keeps the dependency footprint minimal and compatible with the host ecosystem.
 
 **How we ensured consistency across SDKs:**
 
-The risk of multi-language SDKs is behavioral divergence — the same policy evaluating differently in Java vs. Go. We mitigated this with:
+The risk of multi-language SDKs is behavioral divergence — different fallback behavior, different caching semantics, different circuit breaker thresholds. We mitigated this with:
 
-- **Language-agnostic test suite:** A shared JSON file defining hundreds of scenarios: (policy + request context → expected allow/deny result). Every SDK ran this exact suite in its own test framework. This was the contract.
-- **Shared specification document:** The policy evaluation algorithm was formally specified — the order of rule evaluation, how conflicts resolve (explicit deny wins), how conditions are matched. The spec was the source of truth, SDKs were implementations of it.
+- **Language-agnostic test suite:** A shared JSON file defining hundreds of scenarios: (request context + service response → expected SDK behavior, including cache hits, fallback scenarios, and error handling). Every SDK ran this exact suite in its own test framework. This was the contract.
+- **Shared specification document:** The SDK behavior was formally specified — cache TTL semantics, circuit breaker thresholds, retry policy, fallback modes. The spec was the source of truth, SDKs were implementations of it.
 - **Cross-SDK integration tests in CI:** On every PR to any SDK, CI ran the full shared test suite across all four languages. A regression in one SDK blocked the release of all SDKs.
 
 **What I'd say in the interview:**
 
-> "We built native SDKs in four languages because the auth evaluation needed to happen in-process — sub-millisecond, no network hop. You can't achieve that by calling a foreign-language SDK. Each SDK had to be idiomatic to its ecosystem so teams would actually adopt it. The hard part wasn't writing four implementations — it was ensuring they all behaved identically. We solved that with a shared, language-agnostic test suite that was the single source of truth for policy evaluation behavior."
+> "We built native SDKs in four languages because teams needed a clean, idiomatic way to integrate with the central auth service — not raw HTTP calls where each team rolls their own retry logic and caching. The SDKs standardized resilience patterns (circuit breaker, fallback, caching) so auth behavior was consistent across the entire company. Each SDK was tailored to its language's strengths — Spring integration for Java, middleware for Node.js, decorators for Python, functional options for Go. The hard part was ensuring all four behaved identically, which we solved with a shared, language-agnostic test suite."
 
 ---
 
@@ -214,47 +214,67 @@ The risk of multi-language SDKs is behavioral divergence — the same policy eva
 
 **What is a sidecar?**
 
-A sidecar is a separate container that runs alongside the main application container in the same pod (in Kubernetes) or on the same host. It shares the network namespace with the main container, so communication between them is via `localhost` — effectively zero network latency.
+A sidecar is a separate container that runs alongside the main application container in the same pod (in Kubernetes) or on the same host. It shares the network namespace with the main container, so communication between them is via `localhost`.
+
+**The key difference from the SDK:** The SDK is a thin client that calls the central auth service over the network on every evaluation. The sidecar runs the **full policy evaluation engine locally** — it fetches and caches policies from the central service in the background, but the actual evaluation happens inside the sidecar container with no network call in the request path.
 
 ```
+SDK model (thin client):
+┌─────────────┐   network    ┌──────────────────┐
+│  Application │────────────→│  Central Auth     │
+│  + SDK       │  (~2-10ms)  │  Service (eval)   │
+└─────────────┘              └──────────────────┘
+
+Sidecar model (local evaluation):
 ┌──────────────────── Pod ────────────────────┐
 │                                             │
-│  ┌─────────────┐       ┌─────────────────┐  │
-│  │  Application │──gRPC──│  Auth Sidecar  │  │
-│  │  (any lang)  │  :9090 │  (policy eval) │  │
-│  └─────────────┘  local  └───────┬────────┘  │
-│                          host    │            │
-│                                  │ fetches    │
-│                                  ▼ policies   │
-│                          ┌──────────────┐     │
-│                          │ Central Auth │     │
-│                          │   Service    │     │
-│                          └──────────────┘     │
+│  ┌─────────────┐  localhost  ┌────────────┐ │       background
+│  │  Application │───gRPC────→│  Sidecar   │ │──── policy sync ───→ Central
+│  │  (any lang)  │  (~0.1ms)  │  (eval     │ │                      Auth
+│  └─────────────┘             │   engine)  │ │                      Service
+│                              └────────────┘ │
 └─────────────────────────────────────────────┘
 ```
 
-**Why a sidecar when we already had native SDKs?**
+**Why a sidecar when we already had SDKs?**
 
-The SDK and the sidecar solve the same problem (local policy evaluation) but with different trade-offs:
+The SDK and the sidecar are two different integration models with a clear latency/complexity spectrum:
 
-| Dimension | Native SDK | Sidecar |
-|-----------|-----------|---------|
-| **Latency** | Lowest — in-process, same memory space, no network hop at all | Very low but higher than SDK — localhost gRPC call (~0.1-0.5ms overhead) |
+| Dimension | SDK (thin client) | Sidecar (local evaluation) |
+|-----------|-------------------|---------------------------|
+| **Latency** | Network round-trip to central service (~2-10ms, varies with load and distance). Response caching reduces frequency but cache misses still pay the full cost | Localhost gRPC call (~0.1-0.5ms). Evaluation is local — no network in the request path. Policies synced in background |
+| **Where evaluation happens** | Central service (remote) | Sidecar container (local) |
 | **Language coupling** | Requires an SDK for the app's language | Language-agnostic — any app can call gRPC on localhost |
-| **Update/rollout** | App team must update their dependency and redeploy | Platform team can update the sidecar independently |
-| **Resource isolation** | Shares memory/CPU with the app — a bug in eval could affect the app | Separate container — memory leak in sidecar doesn't crash the app |
-| **Adoption friction** | Team must add a dependency, update code, learn the SDK API | Team only needs to make a gRPC call — minimal code change |
-| **Debugging** | One process — simpler stack traces | Two processes — need to correlate logs between containers |
+| **Update/rollout** | App team must update their SDK dependency and redeploy | Platform team can update the sidecar image independently |
+| **Resource isolation** | Lightweight — SDK is just an HTTP client + cache in the app's process | Heavier — separate container consuming its own memory/CPU for the evaluation engine and policy cache |
+| **Adoption friction** | Team must add a dependency, learn the SDK API, adapt to the framework pattern | Team only needs to make a gRPC call — minimal code change, no dependency to import |
+| **Debugging** | One process — simpler stack traces, SDK logs are part of the app's logs | Two processes — need to correlate logs between app container and sidecar container |
 | **Versioning** | Each app may be on a different SDK version — fragmentation risk | Platform team controls the version centrally |
+| **Failure mode** | If central service is down → SDK circuit breaker opens → fallback (fail open/closed). Cache may serve stale results | If sidecar is down → app gets connection refused on localhost → must handle gracefully. If central service is down → sidecar keeps evaluating with cached policies — more resilient |
+| **Operational cost** | Low — just a library dependency | Higher — another container per pod to deploy, monitor, resource-limit, and debug |
 
 **When to recommend each:**
 
-- **SDK** when: the team's language has a mature SDK, they need absolute minimum latency (in-process, zero network overhead), and they're willing to own the dependency lifecycle (updates, testing, version bumps).
-- **Sidecar** when: the team uses a language without an SDK (or a less mature one), they prefer not to manage auth dependencies, or when the platform team needs to push policy evaluation updates without requiring every app team to redeploy. Also useful as a staging ground for new authorization features — ship it in the sidecar first, let teams validate, then backport to SDKs once stable. The slight latency overhead (~0.1-0.5ms localhost gRPC) is negligible for most applications.
+- **SDK** when: the team's language has a mature SDK, latency is acceptable (cache hit ratio is high, so most checks don't hit the network), and they want the simplest operational footprint (no extra container).
+- **Sidecar** when: latency is critical (the network round-trip to the central service is too expensive), the team uses a language without an SDK, or when the platform team needs deployment independence (push updates without requiring app teams to redeploy). Also useful as a staging ground for new authorization features — ship it in the sidecar first, validate, then update SDKs.
+
+**The three-tier model (how it evolved):**
+
+```
+1. Direct HTTP calls     →  Every team rolls their own. Inconsistent, fragile.
+2. SDK (thin client)     →  Standardized client. Network call on eval, but with
+                            caching, retries, circuit breaker. Good enough for
+                            most services.
+3. Sidecar (local eval)  →  Full evaluation engine on localhost. Best latency,
+                            most operational complexity. For latency-sensitive
+                            services and teams without an SDK.
+```
+
+Each tier was introduced to solve the limitations of the previous one. The SDKs fixed the "everyone rolls their own client" problem. The sidecar fixed the "network latency on every cache miss" problem.
 
 **The real-world scenario that drove the sidecar decision:**
 
-> "The sidecar was born from a practical problem: we had teams using languages or frameworks where the SDK wasn't available yet, or where integrating it required significant refactoring. They needed auth evaluation now, not in 3 months when we'd build an SDK for their stack. The sidecar gave them that — add a container to your pod, make a localhost gRPC call, done. No dependency to import, no code changes beyond the API call. But the biggest win turned out to be versioning: with SDKs, some teams were stuck on old versions because upgrading required code changes and testing. With the sidecar, the platform team controls the version — we deploy an update and every app using the sidecar gets the new policy evaluation logic on the next pod restart. The trade-off is clear: the SDK is faster (in-process, zero overhead) but couples the auth lifecycle to the app's lifecycle. The sidecar is slightly slower (localhost hop) but decouples them completely."
+> "The SDKs worked well for most services — the response cache meant that the majority of auth checks were served locally without a network call. But we had two categories of teams that needed more. First, **latency-sensitive services** in the critical path where even occasional cache misses (full network round-trip to the central service) were too expensive — a p99 spike of 10ms on an auth check cascaded into their SLA. The sidecar eliminated this because evaluation is always local — no network in the hot path, ever. Second, **teams without an SDK** for their language or framework. The sidecar gave them auth evaluation immediately — just add a container and call gRPC on localhost. But the biggest win turned out to be versioning: with SDKs, some teams were stuck on old versions because upgrading required code changes and testing. With the sidecar, the platform team controls the version — we deploy an update and it's live everywhere on the next pod restart."
 
 **How sidecar deployment and versioning worked for consuming teams:**
 
@@ -295,7 +315,7 @@ spec:
 
 **The key trade-off to articulate in the interview:**
 
-> "The sidecar adds operational complexity — it's another container to deploy, monitor, and debug. But it decouples the auth platform's release cycle from every application team's release cycle. With SDKs alone, shipping a critical policy evaluation fix means waiting for 50+ teams to update their dependency and redeploy. With the sidecar, we ship it once and it's live everywhere. For a security-critical system like authorization, that deployment independence was worth the operational cost."
+> "We ended up with a spectrum: SDKs for teams where the response cache gave them good enough latency and they wanted simplicity, and the sidecar for teams that needed guaranteed low latency (no network on the eval path) or didn't have an SDK for their language. The sidecar costs more operationally — it's another container per pod to deploy, monitor, and resource-limit. But it eliminates the network variable entirely and decouples the auth platform's release cycle from every application team's release cycle. For a security-critical system, that combination of latency and deployment independence was worth the operational cost."
 
 ---
 
