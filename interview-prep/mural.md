@@ -122,7 +122,7 @@ This is the most relevant experience for the Admin & IAM role. The EM will likel
 > - Handle **local caching of policies** to minimize network calls — policies were fetched and cached, with invalidation on policy changes
 > - Support **fallback behavior** — if the central policy service was unreachable, the SDK could evaluate cached policies instead of failing open or failing closed (configurable per application)
 >
-> I also worked on the **Docker sidecar deployment model** — an alternative where the policy evaluation engine runs as a sidecar container alongside the application. This was critical for latency-sensitive workloads that couldn't afford even the in-process SDK overhead of fetching policies over the network.
+> I also worked on the **Docker sidecar deployment model** — an alternative where the policy evaluation engine runs as a sidecar container alongside the application. This was critical for teams that didn't have a mature SDK for their language, or that needed to decouple the auth evaluation lifecycle from their application's deployment cycle.
 >
 > For validation, I **designed and ran stress tests** simulating real-world MELI traffic patterns. We identified bottlenecks in the policy evaluation hot path and optimized accordingly — things like pre-compiling policy rules, efficient data structures for policy lookup, and minimizing allocations in the evaluation loop.
 >
@@ -144,7 +144,7 @@ This is the most relevant experience for the Admin & IAM role. The EM will likel
 > "The hardest ones were cache invalidation issues — a policy was updated but the cache in some SDK instances hadn't refreshed yet, causing intermittent authorization failures. Users would get denied access to resources they should have access to. The debugging was tricky because it was non-deterministic and depended on which instance served the request. We improved the cache invalidation mechanism from TTL-based to event-driven (pub/sub notification on policy changes) to reduce the staleness window."
 
 **"How did the sidecar model work? Why not just use the SDK?"**
-> "The SDK works well for most applications, but some latency-sensitive services needed the evaluation engine running locally — no network hop at all. The sidecar was a lightweight container running the evaluation engine with a local gRPC interface. The application talks to localhost, the sidecar evaluates the policy. The trade-off was operational complexity (deploying and managing the sidecar) vs. latency reduction. We let each team choose based on their latency budget."
+> "The SDK is actually the fastest option — fully in-process, zero network hop. The sidecar wasn't about latency, it was about solving three other problems. First, **language coverage**: some teams used languages or frameworks where the SDK wasn't available or mature yet. The sidecar gave them auth evaluation immediately — just add a container and make a localhost gRPC call. Second, **deployment independence**: with SDKs, shipping a critical fix meant waiting for 50+ teams to update their dependency and redeploy. With the sidecar, the platform team ships once and it's live everywhere. Third, **resource isolation**: the sidecar runs in its own container, so a memory leak or CPU spike in the policy evaluation engine doesn't affect the main application. The trade-off was the reverse — the sidecar adds ~0.1-0.5ms of latency (localhost gRPC) and operational complexity (another container to manage), so teams with a mature SDK and strict latency budgets preferred the SDK."
 
 ---
 
@@ -239,7 +239,7 @@ The SDK and the sidecar solve the same problem (local policy evaluation) but wit
 
 | Dimension | Native SDK | Sidecar |
 |-----------|-----------|---------|
-| **Latency** | Lowest — in-process, same memory space | Very low — localhost gRPC call (~0.1-0.5ms) |
+| **Latency** | Lowest — in-process, same memory space, no network hop at all | Very low but higher than SDK — localhost gRPC call (~0.1-0.5ms overhead) |
 | **Language coupling** | Requires an SDK for the app's language | Language-agnostic — any app can call gRPC on localhost |
 | **Update/rollout** | App team must update their dependency and redeploy | Platform team can update the sidecar independently |
 | **Resource isolation** | Shares memory/CPU with the app — a bug in eval could affect the app | Separate container — memory leak in sidecar doesn't crash the app |
@@ -249,12 +249,12 @@ The SDK and the sidecar solve the same problem (local policy evaluation) but wit
 
 **When to recommend each:**
 
-- **SDK** when: the team's language has a mature SDK, they need absolute minimum latency (sub-millisecond), and they're willing to own the dependency lifecycle (updates, testing).
-- **Sidecar** when: the team uses a language without an SDK (or a less mature one), they prefer not to manage auth dependencies, or when the platform team needs to push policy evaluation updates without requiring every app team to redeploy. Also when evaluating new authorization features — ship it in the sidecar, let teams opt in, then backport to SDKs once stable.
+- **SDK** when: the team's language has a mature SDK, they need absolute minimum latency (in-process, zero network overhead), and they're willing to own the dependency lifecycle (updates, testing, version bumps).
+- **Sidecar** when: the team uses a language without an SDK (or a less mature one), they prefer not to manage auth dependencies, or when the platform team needs to push policy evaluation updates without requiring every app team to redeploy. Also useful as a staging ground for new authorization features — ship it in the sidecar first, let teams validate, then backport to SDKs once stable. The slight latency overhead (~0.1-0.5ms localhost gRPC) is negligible for most applications.
 
 **The real-world scenario that drove the sidecar decision:**
 
-> "We had teams using languages or frameworks where the SDK wasn't available yet, or where integrating it required significant refactoring. The sidecar gave them auth evaluation immediately — just add a container to your pod and make a localhost gRPC call. No dependency to import, no code changes beyond the API call. It also solved the versioning problem: with SDKs, some teams were stuck on old versions because upgrading required app changes and testing. With the sidecar, the platform team controls the version — we deploy an update and every app using the sidecar gets the new policy evaluation logic on the next pod restart."
+> "The sidecar was born from a practical problem: we had teams using languages or frameworks where the SDK wasn't available yet, or where integrating it required significant refactoring. They needed auth evaluation now, not in 3 months when we'd build an SDK for their stack. The sidecar gave them that — add a container to your pod, make a localhost gRPC call, done. No dependency to import, no code changes beyond the API call. But the biggest win turned out to be versioning: with SDKs, some teams were stuck on old versions because upgrading required code changes and testing. With the sidecar, the platform team controls the version — we deploy an update and every app using the sidecar gets the new policy evaluation logic on the next pod restart. The trade-off is clear: the SDK is faster (in-process, zero overhead) but couples the auth lifecycle to the app's lifecycle. The sidecar is slightly slower (localhost hop) but decouples them completely."
 
 **How sidecar deployment and versioning worked for consuming teams:**
 
