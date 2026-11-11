@@ -313,9 +313,42 @@ spec:
 - **Emergency patches** (security fixes): Platform team could push a new image tag and trigger rolling restarts across all pods using the sidecar — teams didn't need to do anything because the sidecar version was managed via a shared Helm chart variable that the platform team controlled.
 - **Canary rollout for risky changes**: Deploy the new sidecar version to a subset of pods first, monitor policy evaluation metrics (latency, error rate, deny rate), and promote or rollback based on data.
 
+**Disadvantages of the sidecar model:**
+
+The sidecar is not free. Every advantage has a cost, and these are the reasons many teams stayed on the SDK:
+
+1. **Resource overhead per pod.** Every pod that uses the sidecar runs an extra container with its own memory and CPU allocation. The evaluation engine needs to hold the full policy cache in memory, plus the gRPC server, plus the background sync goroutines. At MeLi's scale — thousands of pods — this adds up. If the sidecar uses 128MB RAM per pod and you have 2,000 pods, that's 256GB of RAM across the cluster just for auth sidecars. You need to set resource requests/limits carefully: too low and the sidecar OOMs under load, too high and you waste cluster capacity.
+
+2. **Startup dependency and ordering.** The application container and the sidecar start concurrently in a pod. If the app starts making auth calls before the sidecar is ready (hasn't finished initial policy sync), those calls fail. You need either: a readiness probe on the sidecar that the app waits for, an init container that blocks until the sidecar is healthy, or the app retrying with backoff on startup. This is subtle — it works fine in steady state but causes flaky failures during deployments and pod restarts if not handled correctly.
+
+3. **Debugging becomes cross-container.** With the SDK, a failed auth check is visible in the app's own logs and stack traces — one process, one log stream. With the sidecar, you need to correlate: the app log says "auth call failed," but the reason is in the sidecar container's logs (policy not found, sync failed, evaluation error). During incidents at 3 AM, jumping between container logs in the same pod adds friction. We mitigated this with a shared correlation ID passed in the gRPC metadata, but it's still more complex than single-process debugging.
+
+4. **Failure mode is different and harder to reason about.** With the SDK (thin client), if the central service is down, the SDK's circuit breaker opens and you get a configurable fallback (fail open/closed, serve cached responses). With the sidecar, you have two potential failure points:
+   - **Sidecar process crashes or OOMs:** The app gets `connection refused` on localhost. This looks like a network error, not an auth error — confusing. You need health checks and restart policies (`restartPolicy`, liveness probes) tuned correctly.
+   - **Background policy sync fails:** The sidecar keeps running but its policies become stale. It still evaluates, but with outdated data. Unlike the SDK (where a cache miss forces a fresh call to the central service), the sidecar has no "cache miss" path — it always evaluates locally. If the sync is broken for hours, the sidecar silently serves stale results. You need alerting on sync lag.
+   - **The worst case:** Sidecar is running, passes health checks, but its policy data is corrupt or empty due to a bad sync. It evaluates everything as deny (or allow, depending on the default). This is a silent failure that only shows up as user-facing permission errors. We added a "policy freshness" metric to detect this.
+
+5. **Versioning coordination across the fleet.** While the sidecar decouples the platform team from app teams for updates, it creates a new problem: **which sidecar version is running where?** With SDKs, you can query each app's dependency manifest to know the version. With sidecars, you need to query the cluster — which pods have which image tag. During a gradual rollout, you may have sidecar v1.2 and v1.3 running simultaneously across the cluster, evaluating the same policy differently if the evaluation logic changed. You need observability on sidecar version distribution (we added it as a metric label).
+
+6. **Network policy and security complexity.** The sidecar needs to make outbound calls to the central auth service for policy sync. In environments with strict network policies (like MeLi), you need to explicitly allow this egress. The sidecar also opens a gRPC port on localhost — in theory only accessible within the pod, but you need to ensure no other pod can reach it (network policies, no `hostNetwork`). Each security layer adds configuration that must be maintained and audited.
+
+7. **Cold start and scaling lag.** When the cluster autoscaler adds new nodes and pods spin up, the sidecar needs to do a full initial policy sync before it can serve evaluations. If the policy set is large (thousands of policies for a complex org), this initial sync can take seconds. During a traffic spike — exactly when you need fast scaling — the new pods aren't ready for auth until the sidecar warms up. The SDK doesn't have this problem because the central service is already warm and ready to serve.
+
+8. **Testing complexity for consuming teams.** With the SDK, teams can mock the auth client in tests — it's just a library dependency they can stub. With the sidecar, integration tests need to either: run a real sidecar container (slower, requires Docker in CI), mock the gRPC endpoint (requires understanding the proto contract), or bypass auth in tests (risky, tests don't reflect production behavior). We published a lightweight test sidecar image with preconfigured allow-all policies for CI, but it was extra maintenance.
+
+**Summary: when the sidecar cost is NOT worth it**
+
+| Scenario | Why SDK is better |
+|----------|-------------------|
+| Team has a mature SDK for their language and high cache hit ratio | SDK latency is good enough, zero operational overhead |
+| Cluster resources are tight | Sidecar memory/CPU per pod adds up at scale |
+| Team needs simple, single-process debugging | SDK keeps everything in one log stream |
+| Policies change infrequently | Cache staleness risk with sidecar sync is unnecessary complexity |
+| Team has strong testing practices and wants full control | SDK is a library they can mock and test easily |
+
 **The key trade-off to articulate in the interview:**
 
-> "We ended up with a spectrum: SDKs for teams where the response cache gave them good enough latency and they wanted simplicity, and the sidecar for teams that needed guaranteed low latency (no network on the eval path) or didn't have an SDK for their language. The sidecar costs more operationally — it's another container per pod to deploy, monitor, and resource-limit. But it eliminates the network variable entirely and decouples the auth platform's release cycle from every application team's release cycle. For a security-critical system, that combination of latency and deployment independence was worth the operational cost."
+> "The sidecar gives you the best latency and deployment independence, but it's not free. You're adding a container to every pod — that's memory, CPU, startup coordination, debugging across two log streams, and a new failure mode where the sidecar can silently serve stale policies if sync breaks. At MeLi we found about 70% of teams were fine with the SDK — the response cache gave them good enough latency and they valued the simplicity. The sidecar was for the 30% that needed guaranteed sub-millisecond evaluation or didn't have an SDK for their stack. The lesson: don't adopt the sidecar by default — adopt it when the SDK's trade-offs are actually a problem for your specific service."
 
 ---
 
