@@ -341,6 +341,180 @@ spec:
 
 ---
 
+### Deep Dive: AWS IAM as a Reference Model
+
+AWS IAM is the authorization system we modeled MeLi's platform after. Understanding it deeply demonstrates domain expertise and gives you a shared vocabulary when discussing authorization architecture with any engineering team. It's also the industry's most well-known and battle-tested access control system.
+
+#### What is AWS IAM?
+
+AWS Identity and Access Management (IAM) is the service that controls **who** can do **what** on **which resources** across the entire AWS ecosystem. Every single AWS API call — launching an EC2 instance, reading from S3, querying DynamoDB — goes through IAM for authorization. It handles:
+
+- **Authentication:** Verifying the identity of the caller (user, service, application)
+- **Authorization:** Evaluating whether the authenticated caller is allowed to perform the requested action on the specified resource
+- **Audit:** Recording every API call for compliance and forensics (via CloudTrail)
+
+At AWS's scale, IAM evaluates **billions of authorization decisions per second** with sub-millisecond latency. It's arguably the most critical service in all of AWS — if IAM goes down, everything goes down.
+
+#### Core Concepts
+
+**1. Principals — "Who is making the request?"**
+
+A principal is any entity that can make a request to AWS:
+
+- **IAM Users:** Human identities with long-lived credentials (access key + secret key). Used for individual developers or service accounts.
+- **IAM Roles:** Temporary identities that can be assumed by users, services, or external entities. No permanent credentials — you get temporary security tokens via STS (Security Token Service). This is the recommended approach for almost everything.
+- **Federated Users:** External identities (from corporate directories like Okta, Azure AD) that assume IAM roles via SAML or OIDC federation. The user never gets IAM credentials — they get temporary tokens scoped to a role.
+- **AWS Services:** Services themselves act as principals. Lambda needs to read from S3 → Lambda assumes a role with S3 read permissions.
+
+**The key design insight:** Principals are separated from credentials. A role defines *what you can do*, not *who you are*. Multiple users can assume the same role. This separation is what makes IAM flexible.
+
+**2. Policies — "What is allowed or denied?"**
+
+Policies are JSON documents that define permissions. They are the core of IAM:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::my-bucket/*",
+      "Condition": {
+        "IpAddress": {
+          "aws:SourceIp": "192.168.1.0/24"
+        }
+      }
+    }
+  ]
+}
+```
+
+Each statement has:
+- **Effect:** `Allow` or `Deny`
+- **Action:** The API operation(s) — `s3:GetObject`, `ec2:RunInstances`, `iam:CreateUser`, etc. Supports wildcards (`s3:*`)
+- **Resource:** The specific resource(s) the action applies to, identified by ARN (Amazon Resource Name). `arn:aws:s3:::my-bucket/*` = all objects in my-bucket
+- **Condition (optional):** Additional constraints — source IP, time of day, MFA presence, tags, etc.
+
+**Policy types:**
+- **Identity-based policies:** Attached to a principal (user, group, role). "This user can do X."
+- **Resource-based policies:** Attached to a resource (S3 bucket, SQS queue). "This bucket allows access from account Y." Enables cross-account access.
+- **Permission boundaries:** A ceiling on what an identity-based policy can grant. Used for delegation: "Allow the DevOps team to create roles, but only with permissions up to this boundary."
+- **Service Control Policies (SCPs):** Organization-level policies that restrict what any account in the org can do. Even if an account's IAM policy says Allow, the SCP can deny it. Used for governance guardrails.
+- **Session policies:** Temporary policies passed when assuming a role. Further restrict the role's permissions for that specific session.
+
+**3. Policy Evaluation Logic — "How does IAM decide?"**
+
+This is the engine. Given a request (principal + action + resource + context), IAM evaluates all applicable policies and returns allow or deny:
+
+```
+1. By default, everything is DENIED (implicit deny)
+2. Evaluate all applicable policies:
+   a. If ANY policy has an explicit Deny → DENY (explicit deny always wins)
+   b. If ANY policy has an Allow AND no explicit Deny → ALLOW
+   c. If no policy matches → DENY (implicit deny)
+3. Check boundaries:
+   a. Permission boundaries, SCPs, and session policies can further restrict
+   b. The effective permission is the INTERSECTION of all applicable policy layers
+```
+
+**The "explicit deny wins" rule** is critical — it means you can grant broad access and then selectively restrict with deny statements. This is how SCPs work: the account has full permissions, but the SCP denies dangerous operations (e.g., leaving the organization, disabling CloudTrail).
+
+**4. Roles and Assume Role — "Temporary, scoped identities"**
+
+Roles are IAM's most powerful concept. Instead of giving a service or user permanent credentials:
+
+1. Define a role with specific permissions
+2. Define a trust policy — who can assume the role
+3. The caller asks STS for temporary credentials scoped to that role
+4. Temporary credentials expire after a configurable duration (15min to 12h)
+
+**Why this matters:**
+- No long-lived credentials to leak or rotate
+- Permissions are scoped to what's needed for the task (least privilege)
+- Cross-account access without sharing credentials — account A's role trusts account B's users
+- Service-to-service auth without hardcoded secrets — each service assumes its own role
+
+**Connection to MeLi:** Our platform used a similar model — policies attached to principals (users, roles, groups) with temporary evaluation contexts. The trust chain concept (who can assume what) was directly inspired by IAM's role assumption model.
+
+#### Architecture Characteristics That Made IAM Successful
+
+**1. Evaluation happens at the edge, not centrally**
+
+If every AWS API call had to route through a single central IAM service, it would be the worst bottleneck in the world. Instead:
+- Policy data is **distributed and cached** at every AWS service endpoint
+- Evaluation happens **locally** at the service receiving the request
+- Policy changes are **propagated** to all endpoints with eventual consistency (this is why IAM changes can take "a few seconds" to propagate)
+
+**Connection to MeLi:** This is exactly the problem our sidecar solved — moving evaluation from a central service to a local engine. AWS does the same thing but at planet scale.
+
+**2. The policy language is the contract**
+
+IAM's policy language (JSON) is the **API between the authorization system and every AWS service**. A new AWS service doesn't need a custom auth integration — it defines its actions and resources, and IAM's evaluation engine handles the rest. This decouples the auth platform from the services it protects.
+
+**Connection to MeLi:** We designed our policy language as the contract too — SDKs and the sidecar both evaluated the same policy format. Adding a new service to the auth platform meant defining its actions/resources in the policy schema, not modifying the evaluation engine.
+
+**3. Layered policy system enables delegation**
+
+IAM's multiple policy layers (identity, resource, boundary, SCP, session) solve a real organizational problem: **how do you give teams autonomy while maintaining guardrails?**
+
+- SCPs let the security team set hard limits ("no one can disable CloudTrail")
+- Permission boundaries let the DevOps team create roles without exceeding their ceiling
+- Identity policies let individual teams manage their own access within those limits
+
+**Connection to Mural:** This maps directly to Mural's multi-tenant model. Organization admins set policies for their org (like SCPs). Workspace admins manage their workspace within those limits (like permission boundaries). Individual users have their own permissions within the workspace (like identity policies).
+
+**4. Everything is auditable by design**
+
+Every IAM decision is logged via CloudTrail — who made the request, what policy allowed or denied it, and why. This isn't an afterthought; it's built into the evaluation engine.
+
+**Why enterprises care:** SOC 2, ISO 27001, GDPR compliance all require audit trails. "Show me every access decision for user X in the last 90 days" must be answerable.
+
+#### Common IAM Challenges (that apply to any auth system)
+
+**1. Least privilege is aspirational, not practical**
+
+The principle says "give only the minimum permissions needed." In practice:
+- Developers don't know exactly what permissions their app needs upfront. They start with broad access and (theoretically) narrow it down.
+- AWS has 15,000+ distinct actions across 300+ services. Knowing the exact set is unrealistic without tooling.
+- **Solutions:** AWS Access Analyzer (identifies unused permissions), IAM Access Advisor (shows last-used timestamps per permission), policy generation from CloudTrail logs (see what was actually used, generate a policy for just that).
+- **Connection to Mural:** Same challenge — how do you help workspace admins grant appropriate permissions without over-granting? Usage analytics + permission suggestions.
+
+**2. Policy debugging is hard**
+
+When a user gets "Access Denied," figuring out *why* is non-trivial:
+- Which policy denied it? Identity policy? Resource policy? SCP? Permission boundary?
+- Was it an explicit deny or an implicit deny (no policy matched)?
+- Is it a condition that's not met (MFA, IP range, tag mismatch)?
+- **Solutions:** IAM Policy Simulator (test a request without executing it), CloudTrail correlation (find the exact evaluation result), structured deny reasons in logs.
+- **Connection to MeLi:** We faced the same problem — intermittent auth failures caused by cache staleness. Policy debugging tooling is essential for any auth platform.
+
+**3. Cross-account and cross-tenant access**
+
+In AWS, companies often have multiple accounts. Granting access across accounts (dev → prod, vendor → customer) requires careful role chains and trust policies. Misconfiguration can expose resources to unintended accounts.
+
+**Connection to Mural:** Cross-tenant access = "share a mural with someone outside your organization." The same trust model applies — explicit trust establishment, scoped permissions, audit trail.
+
+**4. Credential management and rotation**
+
+Long-lived credentials (access keys) are a constant security risk. They get committed to git repos, embedded in CI/CD configs, shared via Slack. AWS recommends roles + temporary credentials for everything, but migration from long-lived keys is a slow organizational change.
+
+**Connection to Mural:** API keys, session tokens, OAuth tokens — same problem space. Credential hygiene is a platform responsibility.
+
+**5. Eventual consistency in policy propagation**
+
+IAM policy changes don't take effect immediately — they propagate across AWS's global infrastructure with eventual consistency. This creates a window where:
+- A newly granted permission doesn't work yet (user frustration)
+- A revoked permission still works briefly (security risk)
+- **Mitigation:** Design for eventual consistency. Make the propagation window as short as possible. For critical revocations (deprovisioning, security incidents), have an immediate enforcement mechanism that bypasses the cache.
+- **Connection to MeLi:** Exactly the cache staleness issue we faced with the SDKs — we moved from TTL-based to event-driven invalidation to shrink the window.
+
+#### What I'd Say in the Interview
+
+> "AWS IAM was the direct inspiration for MeLi's authorization platform. I studied its architecture deeply — the policy language, the evaluation logic (explicit deny wins), the layered policy system, and the distributed evaluation model. What I took from IAM specifically was: the policy language as the contract between the auth system and consumers, the separation of principals from credentials (roles vs. users), and the principle that evaluation should happen as close to the consumer as possible (which drove our sidecar decision). I also learned from IAM's challenges — least privilege being hard without tooling, policy debugging being essential, and eventual consistency in policy propagation being a real operational issue we had to solve."
+
+---
+
 ### Domain Knowledge: Auth & Access Control
 
 Everything a senior engineer should know about the identity and access control domain. Use this to demonstrate you can contribute to Mural's IAM platform from day one — not just as a generalist backend engineer, but as someone who understands the problem space deeply.
