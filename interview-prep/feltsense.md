@@ -102,14 +102,14 @@ Think of it as: instead of a human founder going through the cycle of "idea → 
 |------------|---------------|-----------------|
 | **TypeScript / Node.js** | Primary stack, 3+ years production | NocNoc (sellers-core, public API, all seller services), Emi Labs |
 | **PostgreSQL** | Production use with ACID transactions | Kavak (financial data), UenoBank (policy orchestrator), NocNoc |
-| **LLM APIs (Anthropic, OpenAI)** | Daily user of Claude Code (Opus/Sonnet), built MCP servers that call Anthropic API | NocNoc (built MCP servers, skills, hooks for team workflows) |
-| **Prompt engineering** | System prompts, structured outputs, CLAUDE.md design, few-shot patterns | NocNoc (production skills with complex system prompts, agent orchestration) |
+| **LLM APIs (Anthropic, OpenAI)** | Daily user of Claude Code (Opus/Sonnet), built MCP servers that call Anthropic API. Built production AI classification system with multiple LLM providers (Bedrock, TypeSafe JEV) | NocNoc (MCP servers + risk platform with multi-provider LLM architecture) |
+| **Prompt engineering** | Designed production prompt system for product classification: structured rules as data, confidence rubrics, disambiguation rules, versioning by content hash. Also CLAUDE.md design, few-shot patterns | NocNoc (risk platform prompt architecture + skills with complex system prompts) |
 | **AI coding agents** | Claude Code as primary development tool daily. Built custom skills and hooks that extend agent behavior | Current daily workflow |
 | **Multi-agent orchestration** | Built skills that dispatch parallel subagents, coordinate independent tasks, and aggregate results | NocNoc (superpowers skills: parallel agents, plan execution, subagent-driven development) |
-| **Structured outputs (Zod)** | Zod for runtime validation in TypeScript services | NocNoc (API validation, request/response schemas) |
+| **Structured outputs (Zod)** | Zod for runtime validation in TypeScript services. Built structured JSON output contracts for LLM responses with repair parsing for malformed outputs | NocNoc (API validation + risk platform structured LLM output contracts) |
 | **Background jobs / Pub-Sub** | SQS queues, async orchestration, DLQ patterns, event-driven architecture | NocNoc (sellers-core → product-information → amz-wrapper), UenoBank (async policy issuance) |
 | **GCP** | AWS-focused (certified Cloud Practitioner), but cloud-native patterns transfer: containerized services, managed queues, IAM | All roles (AWS), patterns are cloud-agnostic |
-| **Self-improving agent systems** | Built feedback loops where agent output is evaluated and used to improve subsequent runs | NocNoc (skills with evaluation checkpoints, verification-before-completion patterns) |
+| **Self-improving agent systems** | Built feedback loops where agent output is evaluated and used to improve subsequent runs. Risk platform has a full evaluation pipeline: labeled sets, threshold grid search, confusion analysis → rules refined based on model errors | NocNoc (skills with evaluation checkpoints + risk platform eval-driven prompt refinement) |
 
 ### Gaps to Acknowledge Honestly
 
@@ -142,6 +142,143 @@ Think of it as: instead of a human founder going through the cycle of "idea → 
 - Structured output validation (agents produce typed results, not free-form text)
 - Feedback loops: verification skills that evaluate agent output and trigger re-execution if quality thresholds aren't met
 - Plan → execute → verify cycle with checkpoints
+
+### AI-Powered Product Classification — NocNoc Risk Platform (Prohibited Products Detection)
+
+**Connection:** This is the most directly relevant experience for Feltsense. I built a production AI system that uses LLMs to classify e-commerce products into risk categories — involving prompt engineering, model selection, cost optimization, structured outputs, evaluation pipelines, and multi-provider architecture. This is exactly the kind of AI-backend engineering Feltsense needs.
+
+#### The Problem
+
+NocNoc is a cross-border marketplace. Different markets (countries) have different regulations on what products can be sold. Account Health (the compliance team) maintains 54 risk families (weapons, drugs, medical devices, live animals, tobacco, etc.) with 140+ patterns describing how prohibited products hide behind euphemisms, unexpected categories, and evasion tactics. The catalog has hundreds of thousands of products that need to be screened.
+
+Previously this was done manually — unsustainable at scale. We needed an automated system that could classify every product in the catalog against these 54 families, with high accuracy, at manageable cost.
+
+#### The Architecture
+
+```
+1. EXTRACT     →  Pull product catalog from Athena data lake into SQLite
+                   (title, brand, description, categories per product)
+
+2. PRE-FILTER  →  Keyword scan: regex patterns from Account Health's rules
+                   run against every product. Hits are stored and optionally
+                   passed to the model as "hints" (leads for the model to
+                   investigate)
+
+3. CLASSIFY    →  Send products to the LLM provider for classification.
+                   Two providers behind a common interface:
+                   ├── Bedrock (Qwen 3 Next 80B) — prompt-based, batch mode
+                   └── TypeSafe JEV — typed Choice question, single product
+
+4. ROUTE       →  Based on confidence thresholds, route results to:
+                   ├── FINAL (high confidence) → automated action
+                   ├── PASS 2 (ambiguous) → deeper review (deprecated: JEV alone performs best)
+                   └── DISCARD (low confidence / errors)
+
+5. DELIVER     →  CSV output with: product ID, family, confidence (0-100),
+                   trigger (exact words that decided it), reason, alt_family
+```
+
+#### Prompt Design — How We Instructed the Model
+
+**The core challenge:** The model needs to understand 54 risk families, each with nuanced boundaries ("a butterfly knife trainer IS a weapon, but a knife-shaped letter opener is NOT"), evasion patterns ("sellers use 'voucher', 'culture', 'for research use only' to disguise prohibited products"), and cross-family disambiguation ("nicotine patches are Tobacco, not Medicine, even when sold as quit-smoking aids").
+
+**Prompt architecture (for Qwen / Bedrock):**
+
+The prompt is a structured system prompt (`pass1_reader.md`) with dynamic sections rendered at runtime:
+
+1. **Role definition:** "You screen e-commerce listings for products that belong to restricted families. Your job is to say WHAT THE PRODUCT IS, not whether it is legal."
+
+2. **General rules** (`pass1_rules.json` → `general`): Cross-cutting classification rules that apply to all families:
+   - "Judge the thing actually shipped — a cage is not an animal, a holster is not a weapon"
+   - "Title wins over description when they contradict"
+   - "Categories are often wrong — never trust the category alone"
+   - "Products hide behind euphemisms, counts instead of names, misspellings"
+
+3. **Confidence rubric** (`confidence_rubric.md`): A calibrated scale so the model's confidence numbers are consistent and meaningful:
+   - 90-100: text explicitly names something of the family
+   - 70-89: almost sure but one detail is missing
+   - 50-69: ambiguous (accessory, look-alike, toy)
+   - Below 50: probably does not belong
+
+4. **Pattern library** (rendered from `shared/families.json`): Each of the 54 families with:
+   - What it covers (in Spanish, exactly as Account Health wrote it — source of truth)
+   - Patterns: how products in this family hide (concepts, categories they appear in, brand signals, evasion tactics, known false positives)
+   - Family-specific rules that settle boundary ambiguities between families
+
+5. **Family rules** (`pass1_rules.json` → `family`): Disambiguation rules for overlapping families:
+   - "Nicotine patches → Tobacco, not Medicine"
+   - "Butterfly knife trainers → Knives, even with 'cosplay'"
+   - "Bullion bars → Precious metals; replica money → Money"
+   - "Test strips for pools → NOT home test kits; tests on human samples → YES"
+
+6. **Structured output contract:** The model must return a JSON array with exact fields: `id`, `family`, `confidence` (0-100), `trigger` (exact words copied from the text), `why` (up to 20 words), `alt_family`.
+
+**Key prompt engineering decisions:**
+
+- **Rules as data, not code:** All family descriptions, patterns, and rules live in JSON files maintained by the Account Health team. No family text is hardcoded in the codebase. A change to a rule takes effect on the next run with no code change.
+- **Versioning by content hash:** `prompt_version` = hash of the rendered prompt. `rules_version` = hash of `families.json`. Both are written into every output row, so a run made with different rules is never confused with another.
+- **Keyword hints (A/B testable):** Regex hits from the pre-filter can be passed to the model as "leads" with `--keyword-hints`, so we can measure whether giving the model hints improves or hurts accuracy.
+
+#### The JEV Provider — Structured Classification Without Prompts
+
+**What is JEV (TypeSafe System One):** A specialized classification API that doesn't take a prompt — it takes typed Choice questions. Instead of asking the model to read a prompt and produce JSON, you define the question, the options (54 families + None), and the criteria for each option. JEV returns a probability distribution across all options.
+
+**Why JEV outperformed prompt-based classification:**
+
+- **No JSON parsing failures.** With Qwen, the model sometimes returns malformed JSON (missing commas, unterminated strings, truncated output). We built a repair parser (`parse.py`), but some responses were unrecoverable. JEV returns structured data by design — the output format is guaranteed by the API.
+- **Probability distribution.** JEV doesn't just say "this is Weapons" — it gives the probability for every family. Confidence = probability of the top choice x 100. This enables threshold-based routing without relying on the model's self-reported confidence (which is often uncalibrated in prompt-based models).
+- **Two-stage optimization.** Step 1 asks a cheap "screening" question (just family names, no details — 1/14th of the tokens). Products that screen clearly as None (probability >= 0.98) are done. Only ambiguous products get the full question (step 2 with all the patterns and rules). Result: 59% fewer input tokens, same accuracy.
+
+**How the request is built:**
+
+```python
+# Each family becomes a Choice option with its criteria
+criteria = {
+    "Weapons & ammunition": {
+        "covers": "Armas de fuego, municiones...",   # Account Health's text
+        "patterns": [                                 # How they hide
+            {"concept": "...", "hides_in": "...", "evasion": "..."}
+        ],
+        "rules": ["Night-vision optics are Weapons..."]  # Disambiguation
+    },
+    # ... 53 more families
+    "None": {"covers": "The product belongs to no restricted family."}
+}
+```
+
+#### Cost Optimization
+
+This was critical — classifying hundreds of thousands of products with expensive models is not viable.
+
+| Model | Cost (input per 1M tokens) | Cost (output per 1M tokens) | Use case |
+|-------|---------------------------|----------------------------|----------|
+| **TypeSafe JEV** | $0.042 | $0.00 (output not billed) | Best accuracy, cheapest. Production choice |
+| **Qwen 3 Next 80B** (Bedrock) | $0.14 (batch: $0.07) | $1.20 (batch: $0.60) | Prompt-based fallback, batch mode for full catalog |
+| **Amazon Nova Micro** | $0.035 | $0.14 | Cheapest Bedrock option, lower accuracy |
+| **Claude Haiku 4.5** | $1.10 | $5.50 | Too expensive for this use case at catalog scale |
+
+**Cost optimization strategies we applied:**
+
+1. **Model selection for the task:** We evaluated 7+ models and picked JEV — not the most well-known, but the best combination of accuracy, structured output, and cost. Claude Haiku would have been 26x more expensive on input tokens alone.
+2. **Two-stage classification:** JEV's screen question uses 1/14th of the tokens. 66% of products are classified in step 1 (clear None). Only 34% need the full question. Net saving: ~59% of input tokens.
+3. **Batch mode on Bedrock:** For the Qwen provider, Bedrock batch pricing is 50% cheaper than on-demand. Full catalog runs use batch mode via S3.
+4. **No unnecessary output tokens:** For products classified as None, the model returns minimal JSON (just id, family, confidence) — no trigger, no why. This saves output tokens on the majority of products.
+5. **Keyword pre-filter:** The regex scan is free (runs locally). Products with zero keyword hits and high None confidence from the screen step don't need the expensive full classification.
+
+#### Evaluation and Quality
+
+**How we measure accuracy:**
+
+- **Labeled evaluation sets:** Account Health labels products manually. `pass1 evaluate` compares model output against labels: precision, recall, F1 per family, confusion matrix.
+- **Threshold grid search:** `pass1 evaluate --grid` tries different routing thresholds without calling the model — finds the optimal confidence cutoffs for routing decisions.
+- **Prompt versioning:** Every run records the exact prompt and rules versions. When accuracy changes, we can trace it to a specific prompt or rule change.
+- **Alt-family analysis:** The model provides a second-best guess (`alt_family`). When the model is wrong, the alt-family is often the correct answer — this tells us which families are commonly confused and where rules need refinement.
+
+#### What I'd Say in the Interview
+
+> "At NocNoc I built a production AI classification system that screens the entire product catalog against 54 risk families for prohibited products. The system uses two LLM providers behind a common interface — TypeSafe JEV for structured classification with probability distributions, and Qwen on Bedrock for prompt-based batch processing. The prompt is engineered as a rule system: 54 family descriptions with patterns and disambiguation rules, all maintained as data files by the compliance team — no family text is hardcoded. I optimized costs with a two-stage classification (59% fewer tokens), model selection (JEV at $0.042/M tokens vs. Claude Haiku at $1.10/M), and batch processing. The system has a full evaluation pipeline: labeled test sets, threshold grid search, prompt versioning by content hash, and confusion analysis. This is the kind of AI-backend system I'd be building at Feltsense — structured AI decisions at scale, with cost discipline, evaluation rigor, and production reliability."
+
+---
 
 ### Async Orchestration & Saga Patterns — NocNoc sellers-core
 
