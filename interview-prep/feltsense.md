@@ -100,14 +100,14 @@ Think of it as: instead of a human founder going through the cycle of "idea → 
 
 | Their tech | My experience | Where I used it |
 |------------|---------------|-----------------|
-| **TypeScript / Node.js** | Primary stack, 3+ years production | NocNoc (sellers-core, public API, all seller services), Emi Labs |
+| **TypeScript / Node.js** | Primary stack, 3+ years production | NocNoc (7 Node.js services: public API, BFFs, integrations, admin tools — see Node.js Services section below), Emi Labs |
 | **PostgreSQL** | Production use with ACID transactions | Kavak (financial data), UenoBank (policy orchestrator), NocNoc |
 | **LLM APIs (Anthropic, OpenAI)** | Daily user of Claude Code (Opus/Sonnet), built MCP servers that call Anthropic API. Built production AI classification system with multiple LLM providers (Bedrock, TypeSafe JEV) | NocNoc (MCP servers + risk platform with multi-provider LLM architecture) |
 | **Prompt engineering** | Designed production prompt system for product classification: structured rules as data, confidence rubrics, disambiguation rules, versioning by content hash. Also CLAUDE.md design, few-shot patterns | NocNoc (risk platform prompt architecture + skills with complex system prompts) |
 | **AI coding agents** | Claude Code as primary development tool daily. Built custom skills and hooks that extend agent behavior | Current daily workflow |
 | **Multi-agent orchestration** | Built skills that dispatch parallel subagents, coordinate independent tasks, and aggregate results | NocNoc (superpowers skills: parallel agents, plan execution, subagent-driven development) |
 | **Structured outputs (Zod)** | Zod for runtime validation in TypeScript services. Built structured JSON output contracts for LLM responses with repair parsing for malformed outputs | NocNoc (API validation + risk platform structured LLM output contracts) |
-| **Background jobs / Pub-Sub** | SQS queues, async orchestration, DLQ patterns, event-driven architecture | NocNoc (sellers-core → product-information → amz-wrapper), UenoBank (async policy issuance) |
+| **Background jobs / Pub-Sub** | SQS queues, async orchestration, DLQ patterns, event-driven architecture | NocNoc (sellers-core → product-information → amz-wrapper, file-integration-service, shopify sync), UenoBank (async policy issuance) |
 | **GCP** | AWS-focused (certified Cloud Practitioner), but cloud-native patterns transfer: containerized services, managed queues, IAM | All roles (AWS), patterns are cloud-agnostic |
 | **Self-improving agent systems** | Built feedback loops where agent output is evaluated and used to improve subsequent runs. Risk platform has a full evaluation pipeline: labeled sets, threshold grid search, confusion analysis → rules refined based on model errors | NocNoc (skills with evaluation checkpoints + risk platform eval-driven prompt refinement) |
 
@@ -321,6 +321,35 @@ This was critical — classifying hundreds of thousands of products with expensi
 **Connection:** The role requires hands-on technical leadership, not just coding.
 
 > "At every role I've had increasing ownership: at MeLi I was promoted while building a platform used by every application. At UenoBank I architected the core policy engine. At NocNoc I proposed and built sellers-core from scratch, established observability practices, and mentored teammates. I've always been the person who identifies what needs to be built, proposes the architecture, builds it, and owns it in production. That's the founding-engineer mentality Feltsense needs."
+
+---
+
+## Node.js Services — NocNoc Production Experience
+
+> Reference for when asked about hands-on Node.js/TypeScript experience. All services below run in production at NocNoc.
+
+**Note:** sellers-core (the core orchestrator) is Java. The Node.js ecosystem surrounds it — APIs, BFFs, integrations, and internal tools.
+
+| Service | Framework | What it does | Key tech |
+|---------|-----------|-------------|----------|
+| **sc-api** | NestJS | Seller-facing REST API (BFF). The main interface sellers interact with — routes requests to sellers-core and other backend services | NestJS, Sentry, REST |
+| **manager-api** | NestJS | Internal platform management API. Used by ops and support teams to manage sellers, products, and platform operations | NestJS, OpenTelemetry, Sentry |
+| **file-integration-service** | NestJS | File import/export processing. Handles bulk operations via file uploads (CSV/Excel), SFTP/FTP integrations with external channels | NestJS, MySQL/TypeORM, AWS SQS, SFTP/FTP |
+| **shopify** | NestJS | Shopify product sync integration. Keeps NocNoc catalog in sync with Shopify stores — handles product create/update/delete events | NestJS, MySQL/TypeORM, AWS SQS |
+| **shopify-channel-app-frontend** | React 18 + Vite | Shopify app frontend. The UI sellers see inside Shopify to connect their store with NocNoc | React 18, Vite, Shopify Polaris |
+| **sellers-admin-tools** | NestJS v10 | Internal admin tool for bulk seller operations. Used by ops for tasks that need direct data manipulation | NestJS v10, MariaDB |
+| **sellers-tools** | Next.js 14 | Internal dashboard for ops/support. Provides visibility into seller operations, product status, and troubleshooting tools | Next.js 14, Tailwind, Radix UI, Zod |
+
+**Patterns across these services:**
+- **NestJS dominance:** 5 of 7 services use NestJS — modules, dependency injection, decorators, guards, interceptors
+- **TypeORM for persistence:** Multiple services use TypeORM with MySQL/MariaDB
+- **Event-driven integration:** SQS queues connect services (file-integration-service and shopify consume async events)
+- **Observability:** OpenTelemetry and Sentry across services
+- **Internal tooling:** 2 services (sellers-tools, sellers-admin-tools) are internal tools — shows experience building ops/support interfaces, not just customer-facing APIs
+
+**What to say in the interview:**
+
+> "At NocNoc I work with 7 Node.js/TypeScript services in production — from seller-facing BFFs and API gateways to async file processing services and Shopify integrations. Most are built with NestJS, so I'm very comfortable with its module system, dependency injection, and decorator-based patterns. I've also built internal tools with Next.js 14 and React. The Java core service (sellers-core) orchestrates the domain logic, but everything around it — the APIs sellers interact with, the integration layer, the admin tools — is TypeScript/Node.js."
 
 ---
 
