@@ -1,0 +1,8 @@
+[
+  { "id": "note_1", "text": "Login flow is confusing", "x": 100, "y": 100, "author": "user_1", "color": "yellow" },
+  { "id": "note_2", "text": "Love the new dashboard", "x": 350, "y": 120, "author": "user_2", "color": "green" },
+  { "id": "note_3", "text": "Need better error messages", "x": 600, "y": 150, "author": "user_3", "color": "pink" },
+  { "id": "note_4", "text": "Mobile app is slow", "x": 150, "y": 350, "author": "user_1", "color": "orange" },
+  { "id": "note_5", "text": "Great onboarding experience", "x": 400, "y": 380, "author": "user_2", "color": "blue" },
+  { "id": "note_6", "text": "Search needs improvement", "x": 650, "y": 400, "author": "user_3", "color": "yellow" }
+]
