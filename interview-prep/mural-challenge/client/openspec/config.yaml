@@ -1,0 +1,39 @@
+schema: spec-driven
+
+context: |
+  We are building the frontend for a real-time collaborative board with sticky notes.
+  Tech Stack:
+    - React 18 + TypeScript (strict mode)
+    - Vite for build tooling
+    - Socket.io-client for real-time events (WebSocket-only transport)
+    - CSS (plain, no CSS-in-JS or preprocessors)
+
+  Architecture:
+    - Functional components with hooks
+    - Custom hooks for state management (useSocket, useBoard)
+    - API service layer for HTTP calls (login, import)
+    - Domain types mirrored from server (not shared — each project defines its own)
+
+  Key patterns:
+    - Optimistic updates: UI updates immediately, server sync is async
+    - Throttled drag events (~50ms) to avoid flooding Socket.io
+    - CSS transitions on notes from other users (smooth position updates)
+    - Auth gate: UsernamePrompt → Board component
+
+  Conventions:
+    - Domain types in models/
+    - React hooks in hooks/
+    - React components in components/
+    - HTTP API service in services/
+
+rules:
+  proposal:
+    - Keep proposals focused on the specific component or hook.
+    - Reference the design spec at ../docs/specs/2026-11-17-collaborative-board-design.md for context.
+  design:
+    - Components should be small and focused (one responsibility).
+    - Business logic goes in hooks, not components.
+    - Components are thin: render + call hook functions.
+  tasks:
+    - Each task must be independently verifiable.
+    - Include exact TypeScript/TSX code.

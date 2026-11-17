@@ -1,0 +1,46 @@
+schema: spec-driven
+
+context: |
+  We are building the backend for a real-time collaborative board with sticky notes.
+  Tech Stack:
+    - Node.js + TypeScript (strict mode)
+    - Express for HTTP routes (auth login, JSON import)
+    - Socket.io for real-time events (WebSocket-only transport)
+    - MongoDB 7 with native driver (not Mongoose)
+    - Redis 7 for Socket.io Pub/Sub adapter (horizontal scaling)
+    - JWT for authentication (username-only login, no passwords)
+    - Vitest for unit testing
+
+  Architecture:
+    - Layered with hexagonal principles
+    - Repository interface (INoteRepository) with concrete MongoNoteRepository
+    - Service layer (NoteService, AuthService) with constructor injection
+    - Thin transport layer: Socket.io handlers and Express routes only parse input and call services
+    - No DI framework — manual constructor injection in composition root (index.ts)
+
+  Key patterns:
+    - Spec-driven development: define contracts (types, interfaces, events) before implementation
+    - Separate events for move (note:move, frequent/throttled) vs text update (note:update, infrequent)
+    - Last-write-wins conflict resolution with partial updates
+    - Single default board (boardId: "default")
+
+  Conventions:
+    - Domain types in models/
+    - Repository interface + implementation in repositories/
+    - Business logic in services/
+    - Socket.io handlers in transport/socket/
+    - Express routes in transport/http/
+    - MongoDB + Redis connection in config/
+
+rules:
+  proposal:
+    - Keep proposals focused on the specific component or change, not the whole system.
+    - Reference the design spec at ../docs/specs/2026-11-17-collaborative-board-design.md for context.
+  design:
+    - Must respect layered architecture boundaries (transport → service → repository).
+    - Services depend on repository interfaces, not concrete implementations.
+    - Socket.io handlers and Express routes are thin — parse input, call service, emit/respond.
+  tasks:
+    - Each task must be independently verifiable.
+    - Include exact TypeScript code for types and interfaces.
+    - Include verification commands (tsc --noEmit, vitest run).
