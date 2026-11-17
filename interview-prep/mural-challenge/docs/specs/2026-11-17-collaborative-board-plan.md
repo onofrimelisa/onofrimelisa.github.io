@@ -8,9 +8,49 @@
 
 **Tech Stack:** React, Vite, TypeScript, Node.js, Express, Socket.io, MongoDB (native driver), Redis (Pub/Sub adapter), Nginx, Docker Compose, Vitest, JWT.
 
-**Methodology:** Spec-driven design — `propose` → `review` → `apply` → `verify` for each component.
+**Methodology:** Spec-Driven Development (SDD) using OpenSpec CLI. Each component is implemented through a change lifecycle: `opsx-propose` → `opsx-apply` → `opsx-sync` → `opsx-archive`. Slash commands live in each service's `.claude/commands/` directory.
 
 **Spec:** `docs/specs/2026-11-17-collaborative-board-design.md`
+
+---
+
+## OpenSpec Change Lifecycle
+
+Every feature follows this cycle:
+
+```
+opsx-propose <change-name>     → Creates proposal.md, design.md, tasks.md, specs/
+opsx-apply <change-name>       → Implements tasks from the change
+opsx-sync <change-name>        → Syncs delta specs to main specs
+opsx-archive <change-name>     → Moves completed change to archive/
+```
+
+Each service has its own OpenSpec setup:
+
+```
+server/
+├── openspec/
+│   ├── config.yaml            # Schema, context, rules for server
+│   ├── changes/               # Active changes
+│   │   └── <change-name>/
+│   │       ├── proposal.md
+│   │       ├── design.md
+│   │       ├── tasks.md
+│   │       └── specs/         # Delta specs
+│   └── specs/                 # Main specs (synced from completed changes)
+├── .claude/
+│   └── commands/              # opsx-propose, opsx-apply, opsx-sync, opsx-archive, opsx-explore, opsx-update
+└── ...
+
+client/
+├── openspec/
+│   ├── config.yaml
+│   ├── changes/
+│   └── specs/
+├── .claude/
+│   └── commands/
+└── ...
+```
 
 ---
 
@@ -123,2161 +163,706 @@ git add server/ client/
 git commit -m "feat: scaffold monorepo with server and client projects"
 ```
 
----
-
-## Phase 2: PROPOSE — Define All Contracts
-
-This is the spec-driven core. We define every type, interface, and event contract before writing any implementation.
-
-### Task 2: propose — Domain models (server)
+### Task 2: Setup OpenSpec CLI + Slash Commands
 
 **Files:**
-- Create: `server/src/models/note.model.ts`
+- Create: `server/openspec/config.yaml`
+- Create: `server/openspec/changes/` (empty dir)
+- Create: `server/openspec/specs/` (empty dir)
+- Create: `server/.claude/commands/opsx-propose.md`
+- Create: `server/.claude/commands/opsx-apply.md`
+- Create: `server/.claude/commands/opsx-sync.md`
+- Create: `server/.claude/commands/opsx-archive.md`
+- Create: `server/.claude/commands/opsx-explore.md`
+- Create: `server/.claude/commands/opsx-update.md`
+- Create: `client/openspec/config.yaml`
+- Create: `client/openspec/changes/` (empty dir)
+- Create: `client/openspec/specs/` (empty dir)
+- Create: `client/.claude/commands/opsx-propose.md`
+- Create: `client/.claude/commands/opsx-apply.md`
+- Create: `client/.claude/commands/opsx-sync.md`
+- Create: `client/.claude/commands/opsx-archive.md`
+- Create: `client/.claude/commands/opsx-explore.md`
+- Create: `client/.claude/commands/opsx-update.md`
 
-- [ ] **Step 1: Create domain model types**
+- [ ] **Step 1: Create server OpenSpec config**
 
-```typescript
-// server/src/models/note.model.ts
+```yaml
+# server/openspec/config.yaml
 
-export type NoteColor = 'yellow' | 'blue' | 'green' | 'pink' | 'orange';
+schema: spec-driven
 
-export const NOTE_COLORS: NoteColor[] = ['yellow', 'blue', 'green', 'pink', 'orange'];
+context: |
+  We are building the backend for a real-time collaborative board with sticky notes.
+  Tech Stack:
+    - Node.js + TypeScript (strict mode)
+    - Express for HTTP routes (auth login, JSON import)
+    - Socket.io for real-time events (WebSocket-only transport)
+    - MongoDB 7 with native driver (not Mongoose)
+    - Redis 7 for Socket.io Pub/Sub adapter (horizontal scaling)
+    - JWT for authentication (username-only login, no passwords)
+    - Vitest for unit testing
 
-export interface StickyNote {
-  id: string;
-  text: string;
-  x: number;
-  y: number;
-  author: string;
-  color: NoteColor;
-  boardId: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
+  Architecture:
+    - Layered with hexagonal principles
+    - Repository interface (INoteRepository) with concrete MongoNoteRepository
+    - Service layer (NoteService, AuthService) with constructor injection
+    - Thin transport layer: Socket.io handlers and Express routes only parse input and call services
+    - No DI framework — manual constructor injection in composition root (index.ts)
 
-export interface CreateNoteInput {
-  text: string;
-  x: number;
-  y: number;
-  color: NoteColor;
-  boardId: string;
-  author: string;
-}
+  Key patterns:
+    - Spec-driven development: define contracts (types, interfaces, events) before implementation
+    - Separate events for move (note:move, frequent/throttled) vs text update (note:update, infrequent)
+    - Last-write-wins conflict resolution with partial updates
+    - Single default board (boardId: "default")
 
-export interface UpdateNoteInput {
-  text: string;
-}
+  Conventions:
+    - Domain types in models/
+    - Repository interface + implementation in repositories/
+    - Business logic in services/
+    - Socket.io handlers in transport/socket/
+    - Express routes in transport/http/
+    - MongoDB + Redis connection in config/
 
-export interface MoveNoteInput {
-  x: number;
-  y: number;
-}
-
-export interface ImportNoteInput {
-  text: string;
-  x: number;
-  y: number;
-  color?: string;
-  author?: string;
-}
-
-export const DEFAULT_BOARD_ID = 'default';
-export const MAX_NOTE_TEXT_LENGTH = 500;
+rules:
+  proposal:
+    - Keep proposals focused on the specific component or change, not the whole system.
+    - Reference the design spec at ../docs/specs/2026-11-17-collaborative-board-design.md for context.
+  design:
+    - Must respect layered architecture boundaries (transport → service → repository).
+    - Services depend on repository interfaces, not concrete implementations.
+    - Socket.io handlers and Express routes are thin — parse input, call service, emit/respond.
+  tasks:
+    - Each task must be independently verifiable.
+    - Include exact TypeScript code for types and interfaces.
+    - Include verification commands (tsc --noEmit, vitest run).
 ```
 
-- [ ] **Step 2: review — Validate completeness**
+- [ ] **Step 2: Create client OpenSpec config**
 
-Checklist:
-- StickyNote has all fields from spec sec 6: id, text, x, y, author, color, boardId, createdAt, updatedAt ✓
-- NoteColor matches spec: yellow, blue, green, pink, orange ✓
-- CreateNoteInput matches `note:create` payload + server-enriched fields (boardId, author) ✓
-- UpdateNoteInput matches `note:update` payload (just text) ✓
-- MoveNoteInput matches `note:move` payload (just x, y) ✓
-- ImportNoteInput matches JSON import validation rules (color optional, author optional) ✓
-- MAX_NOTE_TEXT_LENGTH = 500 per spec ✓
+```yaml
+# client/openspec/config.yaml
 
-- [ ] **Step 3: Commit**
+schema: spec-driven
+
+context: |
+  We are building the frontend for a real-time collaborative board with sticky notes.
+  Tech Stack:
+    - React 18 + TypeScript (strict mode)
+    - Vite for build tooling
+    - Socket.io-client for real-time events (WebSocket-only transport)
+    - CSS (plain, no CSS-in-JS or preprocessors)
+
+  Architecture:
+    - Functional components with hooks
+    - Custom hooks for state management (useSocket, useBoard)
+    - API service layer for HTTP calls (login, import)
+    - Domain types mirrored from server (not shared — each project defines its own)
+
+  Key patterns:
+    - Optimistic updates: UI updates immediately, server sync is async
+    - Throttled drag events (~50ms) to avoid flooding Socket.io
+    - CSS transitions on notes from other users (smooth position updates)
+    - Auth gate: UsernamePrompt → Board component
+
+  Conventions:
+    - Domain types in models/
+    - React hooks in hooks/
+    - React components in components/
+    - HTTP API service in services/
+
+rules:
+  proposal:
+    - Keep proposals focused on the specific component or hook.
+    - Reference the design spec at ../docs/specs/2026-11-17-collaborative-board-design.md for context.
+  design:
+    - Components should be small and focused (one responsibility).
+    - Business logic goes in hooks, not components.
+    - Components are thin: render + call hook functions.
+  tasks:
+    - Each task must be independently verifiable.
+    - Include exact TypeScript/TSX code.
+```
+
+- [ ] **Step 3: Copy OpenSpec slash commands to both services**
+
+Copy the 6 OpenSpec slash commands from the reference implementation at `/Users/melisaonofri/Documents/Personal/interviews/canals-interview/canals-service/.claude/commands/` into both `server/.claude/commands/` and `client/.claude/commands/`:
 
 ```bash
-git add server/src/models/note.model.ts
-git commit -m "propose: domain models for StickyNote and input types"
+mkdir -p server/.claude/commands client/.claude/commands
+mkdir -p server/openspec/{changes,specs} client/openspec/{changes,specs}
+
+# Copy slash commands to both services
+for cmd in opsx-propose opsx-apply opsx-sync opsx-archive opsx-explore opsx-update; do
+  cp /Users/melisaonofri/Documents/Personal/interviews/canals-interview/canals-service/.claude/commands/${cmd}.md server/.claude/commands/
+  cp /Users/melisaonofri/Documents/Personal/interviews/canals-interview/canals-service/.claude/commands/${cmd}.md client/.claude/commands/
+done
 ```
-
-### Task 3: propose — Event contract (server)
-
-**Files:**
-- Create: `server/src/models/socket-events.ts`
-
-- [ ] **Step 1: Create typed event interfaces**
-
-```typescript
-// server/src/models/socket-events.ts
-
-import { StickyNote, NoteColor } from './note.model.js';
-
-// Client → Server events
-export interface ClientToServerEvents {
-  'board:join': (ack: (notes: StickyNote[]) => void) => void;
-  'note:create': (
-    data: { text: string; x: number; y: number; color: NoteColor },
-    ack: (note: StickyNote) => void,
-  ) => void;
-  'note:update': (data: { id: string; text: string }) => void;
-  'note:move': (data: { id: string; x: number; y: number }) => void;
-}
-
-// Server → Client events
-export interface ServerToClientEvents {
-  'note:created': (note: StickyNote) => void;
-  'note:updated': (data: { id: string; text: string; updatedAt: Date }) => void;
-  'note:moved': (data: { id: string; x: number; y: number }) => void;
-  'board:user-joined': (data: { username: string; users: string[] }) => void;
-  'board:user-left': (data: { username: string; users: string[] }) => void;
-  'board:notes-imported': (notes: StickyNote[]) => void;
-}
-
-// Data attached to each socket after JWT auth
-export interface SocketData {
-  userId: string;
-  username: string;
-}
-```
-
-- [ ] **Step 2: review — Validate against spec sec 7**
-
-Checklist:
-- `board:join`: no payload, ack with StickyNote[] ✓
-- `note:create`: payload {text, x, y, color}, ack with StickyNote ✓
-- `note:update`: payload {id, text}, no ack ✓
-- `note:move`: payload {id, x, y}, no ack ✓
-- `note:created`: StickyNote ✓
-- `note:updated`: {id, text, updatedAt} ✓
-- `note:moved`: {id, x, y} ✓
-- `board:user-joined`: {username, users[]} ✓
-- `board:user-left`: {username, users[]} ✓
-- `board:notes-imported`: StickyNote[] ✓
-- SocketData carries userId + username from JWT ✓
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add server/src/models/socket-events.ts
-git commit -m "propose: Socket.io event contract (ClientToServer + ServerToClient)"
-```
-
-### Task 4: propose — Repository interface (server)
-
-**Files:**
-- Create: `server/src/repositories/note.repository.ts` (interface only)
-
-- [ ] **Step 1: Define INoteRepository interface**
-
-```typescript
-// server/src/repositories/note.repository.ts
-
-import { StickyNote, CreateNoteInput, UpdateNoteInput, MoveNoteInput } from '../models/note.model.js';
-
-export interface INoteRepository {
-  findByBoardId(boardId: string): Promise<StickyNote[]>;
-  create(input: CreateNoteInput): Promise<StickyNote>;
-  updateText(id: string, input: UpdateNoteInput): Promise<StickyNote | null>;
-  updatePosition(id: string, input: MoveNoteInput): Promise<StickyNote | null>;
-  createMany(inputs: CreateNoteInput[]): Promise<StickyNote[]>;
-}
-```
-
-- [ ] **Step 2: review — Validate CRUD coverage**
-
-Checklist:
-- `findByBoardId`: covers `board:join` (load all notes) ✓
-- `create`: covers `note:create` ✓
-- `updateText`: covers `note:update` (partial — text only) ✓
-- `updatePosition`: covers `note:move` (partial — x, y only) ✓
-- `createMany`: covers JSON import (bulk insert) ✓
-- Returns StickyNote (not MongoDB documents) — clean domain types ✓
-- updateText/updatePosition return null if note not found — caller handles ✓
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add server/src/repositories/note.repository.ts
-git commit -m "propose: INoteRepository interface for data access layer"
-```
-
-### Task 5: propose — Service interfaces (server)
-
-**Files:**
-- Create: `server/src/services/note.service.ts` (interface + class shell)
-- Create: `server/src/services/auth.service.ts` (interface + class shell)
-
-- [ ] **Step 1: Define NoteService class shell**
-
-```typescript
-// server/src/services/note.service.ts
-
-import { StickyNote, CreateNoteInput, UpdateNoteInput, MoveNoteInput, ImportNoteInput,
-         NoteColor, NOTE_COLORS, MAX_NOTE_TEXT_LENGTH, DEFAULT_BOARD_ID } from '../models/note.model.js';
-import { INoteRepository } from '../repositories/note.repository.js';
-import { v4 as uuidv4 } from 'uuid';
-
-export class NoteService {
-  constructor(private noteRepository: INoteRepository) {}
-
-  async getBoardNotes(boardId: string): Promise<StickyNote[]> {
-    throw new Error('Not implemented');
-  }
-
-  async createNote(text: string, x: number, y: number, color: NoteColor, author: string): Promise<StickyNote> {
-    throw new Error('Not implemented');
-  }
-
-  async updateNoteText(id: string, text: string): Promise<StickyNote | null> {
-    throw new Error('Not implemented');
-  }
-
-  async moveNote(id: string, x: number, y: number): Promise<StickyNote | null> {
-    throw new Error('Not implemented');
-  }
-
-  async importNotes(notes: ImportNoteInput[], defaultAuthor: string): Promise<StickyNote[]> {
-    throw new Error('Not implemented');
-  }
-}
-```
-
-- [ ] **Step 2: Define AuthService class shell**
-
-```typescript
-// server/src/services/auth.service.ts
-
-import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
-
-export interface JwtPayload {
-  userId: string;
-  username: string;
-}
-
-export class AuthService {
-  constructor(private jwtSecret: string) {}
-
-  login(username: string): { token: string; userId: string; username: string } {
-    throw new Error('Not implemented');
-  }
-
-  verify(token: string): JwtPayload {
-    throw new Error('Not implemented');
-  }
-}
-```
-
-- [ ] **Step 3: review — Validate service coverage**
-
-NoteService checklist:
-- `getBoardNotes` → used by `board:join` handler ✓
-- `createNote` → used by `note:create` handler. Takes primitive args, not raw payload ✓
-- `updateNoteText` → used by `note:update` handler. Returns null if not found ✓
-- `moveNote` → used by `note:move` handler. Returns null if not found ✓
-- `importNotes` → used by POST /api/boards/default/import. Takes ImportNoteInput[] ✓
-- Constructor takes INoteRepository — dependency injection ✓
-
-AuthService checklist:
-- `login` → generates JWT with userId (new UUID) + username. Returns token + user info ✓
-- `verify` → validates JWT, returns JwtPayload. Throws on invalid ✓
-- Constructor takes jwtSecret — configurable ✓
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add server/src/services/
-git commit -m "propose: NoteService and AuthService interfaces with method signatures"
-```
-
-### Task 6: propose — Domain models (client)
-
-**Files:**
-- Create: `client/src/models/note.model.ts`
-
-- [ ] **Step 1: Create client-side domain types**
-
-```typescript
-// client/src/models/note.model.ts
-
-export type NoteColor = 'yellow' | 'blue' | 'green' | 'pink' | 'orange';
-
-export const NOTE_COLORS: NoteColor[] = ['yellow', 'blue', 'green', 'pink', 'orange'];
-
-export interface StickyNote {
-  id: string;
-  text: string;
-  x: number;
-  y: number;
-  author: string;
-  color: NoteColor;
-  boardId: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-// Socket.io event types (mirrors server)
-export interface ServerToClientEvents {
-  'note:created': (note: StickyNote) => void;
-  'note:updated': (data: { id: string; text: string; updatedAt: Date }) => void;
-  'note:moved': (data: { id: string; x: number; y: number }) => void;
-  'board:user-joined': (data: { username: string; users: string[] }) => void;
-  'board:user-left': (data: { username: string; users: string[] }) => void;
-  'board:notes-imported': (notes: StickyNote[]) => void;
-}
-
-export interface ClientToServerEvents {
-  'board:join': (ack: (notes: StickyNote[]) => void) => void;
-  'note:create': (
-    data: { text: string; x: number; y: number; color: NoteColor },
-    ack: (note: StickyNote) => void,
-  ) => void;
-  'note:update': (data: { id: string; text: string }) => void;
-  'note:move': (data: { id: string; x: number; y: number }) => void;
-}
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add client/src/models/
-git commit -m "propose: client-side domain models and Socket.io event types"
+git add server/openspec/ server/.claude/ client/openspec/ client/.claude/
+git commit -m "feat: setup OpenSpec CLI config and slash commands for both services"
 ```
 
 ---
 
-## Phase 3: APPLY — Backend Implementation
+## Phase 2: Backend Changes (via OpenSpec)
 
-### Task 7: apply — MongoDB repository
+Each change follows the OpenSpec lifecycle: `opsx-propose` → review artifacts → `opsx-apply` → `opsx-sync` → `opsx-archive`.
 
-**Files:**
-- Modify: `server/src/repositories/note.repository.ts` (add MongoNoteRepository)
-- Create: `server/src/config/database.ts`
+Run all backend changes from the `server/` directory.
 
-- [ ] **Step 1: Create database connection helper**
+### Change 1: `domain-models`
 
-```typescript
-// server/src/config/database.ts
-
-import { MongoClient, Db } from 'mongodb';
-
-let client: MongoClient;
-let db: Db;
-
-export async function connectToDatabase(uri: string): Promise<Db> {
-  client = new MongoClient(uri);
-  await client.connect();
-  db = client.db();
-  await db.collection('notes').createIndex({ boardId: 1 });
-  console.log('Connected to MongoDB');
-  return db;
-}
-
-export async function disconnectDatabase(): Promise<void> {
-  if (client) {
-    await client.close();
-  }
-}
+**Propose command:**
+```
+/project:opsx-propose domain-models
 ```
 
-- [ ] **Step 2: Implement MongoNoteRepository**
+**Context to provide:**
+```
+Implement all domain model types for the collaborative board.
 
-Add below the INoteRepository interface in `server/src/repositories/note.repository.ts`:
+Models needed (see ../docs/specs/2026-11-17-collaborative-board-design.md Section 6):
 
-```typescript
-// server/src/repositories/note.repository.ts
+1. StickyNote interface:
+   - id (string), text (string), x (number), y (number), author (string)
+   - color (NoteColor), boardId (string), createdAt (Date), updatedAt (Date)
 
-import { Collection, WithId, Document } from 'mongodb';
-import { StickyNote, CreateNoteInput, UpdateNoteInput, MoveNoteInput } from '../models/note.model.js';
-import { v4 as uuidv4 } from 'uuid';
+2. NoteColor type: 'yellow' | 'blue' | 'green' | 'pink' | 'orange'
+   - Also export NOTE_COLORS array constant
 
-export interface INoteRepository {
-  findByBoardId(boardId: string): Promise<StickyNote[]>;
-  create(input: CreateNoteInput): Promise<StickyNote>;
-  updateText(id: string, input: UpdateNoteInput): Promise<StickyNote | null>;
-  updatePosition(id: string, input: MoveNoteInput): Promise<StickyNote | null>;
-  createMany(inputs: CreateNoteInput[]): Promise<StickyNote[]>;
-}
+3. Input types:
+   - CreateNoteInput: text, x, y, color, boardId, author
+   - UpdateNoteInput: text
+   - MoveNoteInput: x, y
+   - ImportNoteInput: text, x, y, color? (optional), author? (optional)
 
-interface NoteDocument {
-  _id: string;
-  text: string;
-  x: number;
-  y: number;
-  author: string;
-  color: string;
-  boardId: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
+4. Constants:
+   - DEFAULT_BOARD_ID = 'default'
+   - MAX_NOTE_TEXT_LENGTH = 500
 
-function toStickyNote(doc: NoteDocument): StickyNote {
-  return {
-    id: doc._id,
-    text: doc.text,
-    x: doc.x,
-    y: doc.y,
-    author: doc.author,
-    color: doc.color as StickyNote['color'],
-    boardId: doc.boardId,
-    createdAt: doc.createdAt,
-    updatedAt: doc.updatedAt,
-  };
-}
-
-export class MongoNoteRepository implements INoteRepository {
-  private collection: Collection<NoteDocument>;
-
-  constructor(collection: Collection<NoteDocument>) {
-    this.collection = collection;
-  }
-
-  async findByBoardId(boardId: string): Promise<StickyNote[]> {
-    const docs = await this.collection.find({ boardId }).toArray();
-    return docs.map(toStickyNote);
-  }
-
-  async create(input: CreateNoteInput): Promise<StickyNote> {
-    const now = new Date();
-    const doc: NoteDocument = {
-      _id: uuidv4(),
-      text: input.text,
-      x: input.x,
-      y: input.y,
-      author: input.author,
-      color: input.color,
-      boardId: input.boardId,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await this.collection.insertOne(doc);
-    return toStickyNote(doc);
-  }
-
-  async updateText(id: string, input: UpdateNoteInput): Promise<StickyNote | null> {
-    const result = await this.collection.findOneAndUpdate(
-      { _id: id },
-      { $set: { text: input.text, updatedAt: new Date() } },
-      { returnDocument: 'after' },
-    );
-    return result ? toStickyNote(result) : null;
-  }
-
-  async updatePosition(id: string, input: MoveNoteInput): Promise<StickyNote | null> {
-    const result = await this.collection.findOneAndUpdate(
-      { _id: id },
-      { $set: { x: input.x, y: input.y, updatedAt: new Date() } },
-      { returnDocument: 'after' },
-    );
-    return result ? toStickyNote(result) : null;
-  }
-
-  async createMany(inputs: CreateNoteInput[]): Promise<StickyNote[]> {
-    const now = new Date();
-    const docs: NoteDocument[] = inputs.map(input => ({
-      _id: uuidv4(),
-      text: input.text,
-      x: input.x,
-      y: input.y,
-      author: input.author,
-      color: input.color,
-      boardId: input.boardId,
-      createdAt: now,
-      updatedAt: now,
-    }));
-    await this.collection.insertMany(docs);
-    return docs.map(toStickyNote);
-  }
-}
+Constraints:
+- File: src/models/note.model.ts
+- Export all types and constants
+- Types must match the event contract in design spec Section 7
 ```
 
-- [ ] **Step 3: Commit**
+**After propose → apply → sync → archive, expected result:**
+- `src/models/note.model.ts` with all types
+- Spec synced to `openspec/specs/domain/models/spec.md`
 
-```bash
-git add server/src/repositories/note.repository.ts server/src/config/database.ts
-git commit -m "apply: MongoNoteRepository implementation + database connection"
+---
+
+### Change 2: `socket-events`
+
+**Propose command:**
+```
+/project:opsx-propose socket-events
 ```
 
-### Task 8: apply — In-memory repository (for tests)
-
-**Files:**
-- Create: `server/tests/helpers/mock.repository.ts`
-
-- [ ] **Step 1: Create InMemoryNoteRepository**
-
-```typescript
-// server/tests/helpers/mock.repository.ts
-
-import { INoteRepository } from '../../src/repositories/note.repository.js';
-import { StickyNote, CreateNoteInput, UpdateNoteInput, MoveNoteInput } from '../../src/models/note.model.js';
-import { v4 as uuidv4 } from 'uuid';
-
-export class InMemoryNoteRepository implements INoteRepository {
-  private notes: Map<string, StickyNote> = new Map();
-
-  async findByBoardId(boardId: string): Promise<StickyNote[]> {
-    return Array.from(this.notes.values()).filter(n => n.boardId === boardId);
-  }
-
-  async create(input: CreateNoteInput): Promise<StickyNote> {
-    const now = new Date();
-    const note: StickyNote = {
-      id: uuidv4(),
-      text: input.text,
-      x: input.x,
-      y: input.y,
-      author: input.author,
-      color: input.color,
-      boardId: input.boardId,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.notes.set(note.id, note);
-    return note;
-  }
-
-  async updateText(id: string, input: UpdateNoteInput): Promise<StickyNote | null> {
-    const note = this.notes.get(id);
-    if (!note) return null;
-    const updated = { ...note, text: input.text, updatedAt: new Date() };
-    this.notes.set(id, updated);
-    return updated;
-  }
-
-  async updatePosition(id: string, input: MoveNoteInput): Promise<StickyNote | null> {
-    const note = this.notes.get(id);
-    if (!note) return null;
-    const updated = { ...note, x: input.x, y: input.y, updatedAt: new Date() };
-    this.notes.set(id, updated);
-    return updated;
-  }
-
-  async createMany(inputs: CreateNoteInput[]): Promise<StickyNote[]> {
-    const results: StickyNote[] = [];
-    for (const input of inputs) {
-      results.push(await this.create(input));
-    }
-    return results;
-  }
-
-  clear(): void {
-    this.notes.clear();
-  }
-}
+**Context to provide:**
 ```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add server/tests/helpers/mock.repository.ts
-git commit -m "apply: InMemoryNoteRepository for unit testing"
-```
-
-### Task 9: apply — AuthService implementation
-
-**Files:**
-- Modify: `server/src/services/auth.service.ts`
-
-- [ ] **Step 1: Implement AuthService**
-
-```typescript
-// server/src/services/auth.service.ts
-
-import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
-
-export interface JwtPayload {
-  userId: string;
-  username: string;
-}
-
-export class AuthService {
-  constructor(private jwtSecret: string) {}
-
-  login(username: string): { token: string; userId: string; username: string } {
-    const userId = uuidv4();
-    const token = jwt.sign({ userId, username }, this.jwtSecret, { expiresIn: '24h' });
-    return { token, userId, username };
-  }
-
-  verify(token: string): JwtPayload {
-    const decoded = jwt.verify(token, this.jwtSecret) as JwtPayload;
-    return { userId: decoded.userId, username: decoded.username };
-  }
-}
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add server/src/services/auth.service.ts
-git commit -m "apply: AuthService with JWT login and verify"
-```
-
-### Task 10: apply — NoteService implementation
-
-**Files:**
-- Modify: `server/src/services/note.service.ts`
-
-- [ ] **Step 1: Implement NoteService**
-
-```typescript
-// server/src/services/note.service.ts
-
-import { StickyNote, CreateNoteInput, ImportNoteInput,
-         NoteColor, NOTE_COLORS, MAX_NOTE_TEXT_LENGTH, DEFAULT_BOARD_ID } from '../models/note.model.js';
-import { INoteRepository } from '../repositories/note.repository.js';
-
-export class NoteService {
-  constructor(private noteRepository: INoteRepository) {}
-
-  async getBoardNotes(boardId: string): Promise<StickyNote[]> {
-    return this.noteRepository.findByBoardId(boardId);
-  }
-
-  async createNote(text: string, x: number, y: number, color: NoteColor, author: string): Promise<StickyNote> {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      throw new Error('Note text cannot be empty');
-    }
-    if (trimmed.length > MAX_NOTE_TEXT_LENGTH) {
-      throw new Error(`Note text cannot exceed ${MAX_NOTE_TEXT_LENGTH} characters`);
-    }
-    if (!NOTE_COLORS.includes(color)) {
-      throw new Error(`Invalid color: ${color}`);
-    }
-    return this.noteRepository.create({
-      text: trimmed,
-      x,
-      y,
-      color,
-      author,
-      boardId: DEFAULT_BOARD_ID,
-    });
-  }
-
-  async updateNoteText(id: string, text: string): Promise<StickyNote | null> {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      throw new Error('Note text cannot be empty');
-    }
-    if (trimmed.length > MAX_NOTE_TEXT_LENGTH) {
-      throw new Error(`Note text cannot exceed ${MAX_NOTE_TEXT_LENGTH} characters`);
-    }
-    return this.noteRepository.updateText(id, { text: trimmed });
-  }
-
-  async moveNote(id: string, x: number, y: number): Promise<StickyNote | null> {
-    return this.noteRepository.updatePosition(id, { x, y });
-  }
-
-  async importNotes(notes: ImportNoteInput[], defaultAuthor: string): Promise<StickyNote[]> {
-    const inputs: CreateNoteInput[] = notes.map(note => ({
-      text: note.text.trim().slice(0, MAX_NOTE_TEXT_LENGTH),
-      x: note.x,
-      y: note.y,
-      color: (note.color && NOTE_COLORS.includes(note.color as NoteColor) ? note.color : 'yellow') as NoteColor,
-      author: note.author || defaultAuthor,
-      boardId: DEFAULT_BOARD_ID,
-    }));
-    return this.noteRepository.createMany(inputs);
-  }
-}
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add server/src/services/note.service.ts
-git commit -m "apply: NoteService with validation and business logic"
-```
-
-### Task 11: apply — NoteService unit tests
-
-**Files:**
-- Create: `server/tests/services/note.service.test.ts`
-- Create: `server/vitest.config.ts`
-
-- [ ] **Step 1: Create vitest config**
-
-```typescript
-// server/vitest.config.ts
-
-import { defineConfig } from 'vitest/config';
-
-export default defineConfig({
-  test: {
-    globals: true,
-  },
-});
-```
-
-- [ ] **Step 2: Write unit tests**
-
-```typescript
-// server/tests/services/note.service.test.ts
-
-import { describe, it, expect, beforeEach } from 'vitest';
-import { NoteService } from '../../src/services/note.service.js';
-import { InMemoryNoteRepository } from '../helpers/mock.repository.js';
-
-describe('NoteService', () => {
-  let service: NoteService;
-  let repo: InMemoryNoteRepository;
-
-  beforeEach(() => {
-    repo = new InMemoryNoteRepository();
-    service = new NoteService(repo);
-  });
-
-  describe('createNote', () => {
-    it('creates a note with valid input', async () => {
-      const note = await service.createNote('Hello', 100, 200, 'yellow', 'alice');
-      expect(note.text).toBe('Hello');
-      expect(note.x).toBe(100);
-      expect(note.y).toBe(200);
-      expect(note.color).toBe('yellow');
-      expect(note.author).toBe('alice');
-      expect(note.boardId).toBe('default');
-      expect(note.id).toBeDefined();
-      expect(note.createdAt).toBeInstanceOf(Date);
-    });
-
-    it('trims whitespace from text', async () => {
-      const note = await service.createNote('  Hello  ', 0, 0, 'blue', 'alice');
-      expect(note.text).toBe('Hello');
-    });
-
-    it('rejects empty text', async () => {
-      await expect(service.createNote('', 0, 0, 'yellow', 'alice')).rejects.toThrow('Note text cannot be empty');
-    });
-
-    it('rejects text exceeding max length', async () => {
-      const longText = 'a'.repeat(501);
-      await expect(service.createNote(longText, 0, 0, 'yellow', 'alice')).rejects.toThrow('cannot exceed 500');
-    });
-
-    it('rejects invalid color', async () => {
-      await expect(service.createNote('Hello', 0, 0, 'red' as any, 'alice')).rejects.toThrow('Invalid color');
-    });
-  });
-
-  describe('updateNoteText', () => {
-    it('updates text of an existing note', async () => {
-      const note = await service.createNote('Original', 0, 0, 'yellow', 'alice');
-      const updated = await service.updateNoteText(note.id, 'Updated');
-      expect(updated?.text).toBe('Updated');
-    });
-
-    it('returns null for non-existent note', async () => {
-      const result = await service.updateNoteText('nonexistent', 'text');
-      expect(result).toBeNull();
-    });
-
-    it('rejects empty text', async () => {
-      const note = await service.createNote('Original', 0, 0, 'yellow', 'alice');
-      await expect(service.updateNoteText(note.id, '  ')).rejects.toThrow('Note text cannot be empty');
-    });
-  });
-
-  describe('moveNote', () => {
-    it('updates position of an existing note', async () => {
-      const note = await service.createNote('Note', 0, 0, 'yellow', 'alice');
-      const moved = await service.moveNote(note.id, 500, 600);
-      expect(moved?.x).toBe(500);
-      expect(moved?.y).toBe(600);
-    });
-
-    it('returns null for non-existent note', async () => {
-      const result = await service.moveNote('nonexistent', 100, 200);
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('getBoardNotes', () => {
-    it('returns all notes for a board', async () => {
-      await service.createNote('Note 1', 0, 0, 'yellow', 'alice');
-      await service.createNote('Note 2', 100, 100, 'blue', 'bob');
-      const notes = await service.getBoardNotes('default');
-      expect(notes).toHaveLength(2);
-    });
-
-    it('returns empty array for board with no notes', async () => {
-      const notes = await service.getBoardNotes('default');
-      expect(notes).toEqual([]);
-    });
-  });
-
-  describe('importNotes', () => {
-    it('imports valid notes with defaults', async () => {
-      const input = [
-        { text: 'Note 1', x: 100, y: 200 },
-        { text: 'Note 2', x: 300, y: 400, color: 'blue', author: 'bob' },
-      ];
-      const notes = await service.importNotes(input, 'alice');
-      expect(notes).toHaveLength(2);
-      expect(notes[0].author).toBe('alice');
-      expect(notes[0].color).toBe('yellow');
-      expect(notes[1].author).toBe('bob');
-      expect(notes[1].color).toBe('blue');
-    });
-
-    it('defaults invalid color to yellow', async () => {
-      const input = [{ text: 'Note', x: 0, y: 0, color: 'invalid' }];
-      const notes = await service.importNotes(input, 'alice');
-      expect(notes[0].color).toBe('yellow');
-    });
-
-    it('truncates text exceeding max length', async () => {
-      const input = [{ text: 'a'.repeat(600), x: 0, y: 0 }];
-      const notes = await service.importNotes(input, 'alice');
-      expect(notes[0].text.length).toBe(500);
-    });
-  });
-});
-```
-
-- [ ] **Step 3: Run tests**
-
-```bash
-cd server && npx vitest run
-```
-
-Expected: All tests pass.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add server/tests/ server/vitest.config.ts
-git commit -m "verify: NoteService unit tests — all passing"
-```
-
-### Task 12: apply — Transport layer (Socket.io handlers)
-
-**Files:**
-- Create: `server/src/transport/socket/auth.middleware.ts`
-- Create: `server/src/transport/socket/board.handlers.ts`
-- Create: `server/src/transport/socket/note.handlers.ts`
-
-- [ ] **Step 1: Create Socket.io auth middleware**
-
-```typescript
-// server/src/transport/socket/auth.middleware.ts
-
-import { Socket } from 'socket.io';
-import { AuthService } from '../../services/auth.service.js';
-import { ClientToServerEvents, ServerToClientEvents, SocketData } from '../../models/socket-events.js';
-
-type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
-
-export function createAuthMiddleware(authService: AuthService) {
-  return (socket: AppSocket, next: (err?: Error) => void) => {
-    const token = socket.handshake.auth?.token;
-    if (!token) {
-      return next(new Error('Authentication required'));
-    }
-    try {
-      const payload = authService.verify(token);
-      socket.data.userId = payload.userId;
-      socket.data.username = payload.username;
-      next();
-    } catch {
-      next(new Error('Invalid token'));
-    }
-  };
-}
-```
-
-- [ ] **Step 2: Create board handlers (join + presence)**
-
-```typescript
-// server/src/transport/socket/board.handlers.ts
-
-import { Server, Socket } from 'socket.io';
-import { NoteService } from '../../services/note.service.js';
-import { ClientToServerEvents, ServerToClientEvents, SocketData } from '../../models/socket-events.js';
-import { DEFAULT_BOARD_ID } from '../../models/note.model.js';
-
-type AppServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
-type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
-
-// Track connected users per board (in-memory, per-instance)
-const boardUsers = new Map<string, Set<string>>();
-
-function getBoardUsers(boardId: string): string[] {
-  return Array.from(boardUsers.get(boardId) || []);
-}
-
-function addUser(boardId: string, username: string): void {
-  if (!boardUsers.has(boardId)) {
-    boardUsers.set(boardId, new Set());
-  }
-  boardUsers.get(boardId)!.add(username);
-}
-
-function removeUser(boardId: string, username: string): void {
-  boardUsers.get(boardId)?.delete(username);
-}
-
-export function registerBoardHandlers(io: AppServer, socket: AppSocket, noteService: NoteService) {
-  socket.on('board:join', async (ack) => {
-    const { username } = socket.data;
-    socket.join(DEFAULT_BOARD_ID);
-    addUser(DEFAULT_BOARD_ID, username);
-
-    const notes = await noteService.getBoardNotes(DEFAULT_BOARD_ID);
-    ack(notes);
-
-    socket.to(DEFAULT_BOARD_ID).emit('board:user-joined', {
-      username,
-      users: getBoardUsers(DEFAULT_BOARD_ID),
-    });
-  });
-
-  socket.on('disconnect', () => {
-    const { username } = socket.data;
-    removeUser(DEFAULT_BOARD_ID, username);
-
-    socket.to(DEFAULT_BOARD_ID).emit('board:user-left', {
-      username,
-      users: getBoardUsers(DEFAULT_BOARD_ID),
-    });
-  });
-}
-```
-
-- [ ] **Step 3: Create note handlers**
-
-```typescript
-// server/src/transport/socket/note.handlers.ts
-
-import { Server, Socket } from 'socket.io';
-import { NoteService } from '../../services/note.service.js';
-import { ClientToServerEvents, ServerToClientEvents, SocketData } from '../../models/socket-events.js';
-import { DEFAULT_BOARD_ID } from '../../models/note.model.js';
-
-type AppServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
-type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
-
-export function registerNoteHandlers(io: AppServer, socket: AppSocket, noteService: NoteService) {
-  socket.on('note:create', async (data, ack) => {
-    try {
-      const note = await noteService.createNote(
-        data.text, data.x, data.y, data.color, socket.data.username,
-      );
-      socket.to(DEFAULT_BOARD_ID).emit('note:created', note);
-      ack(note);
-    } catch (err) {
-      console.error('Error creating note:', err);
-    }
-  });
-
-  socket.on('note:update', async (data) => {
-    try {
-      const updated = await noteService.updateNoteText(data.id, data.text);
-      if (updated) {
-        socket.to(DEFAULT_BOARD_ID).emit('note:updated', {
-          id: updated.id,
-          text: updated.text,
-          updatedAt: updated.updatedAt,
-        });
-      }
-    } catch (err) {
-      console.error('Error updating note:', err);
-    }
-  });
-
-  socket.on('note:move', async (data) => {
-    try {
-      const moved = await noteService.moveNote(data.id, data.x, data.y);
-      if (moved) {
-        socket.to(DEFAULT_BOARD_ID).emit('note:moved', {
-          id: moved.id,
-          x: moved.x,
-          y: moved.y,
-        });
-      }
-    } catch (err) {
-      console.error('Error moving note:', err);
-    }
-  });
-}
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add server/src/transport/socket/
-git commit -m "apply: Socket.io transport layer — auth middleware, board and note handlers"
-```
-
-### Task 13: apply — HTTP routes (auth + import)
-
-**Files:**
-- Create: `server/src/transport/http/auth.routes.ts`
-- Create: `server/src/transport/http/board.routes.ts`
-
-- [ ] **Step 1: Create auth routes**
-
-```typescript
-// server/src/transport/http/auth.routes.ts
-
-import { Router, Request, Response } from 'express';
-import { AuthService } from '../../services/auth.service.js';
-
-export function createAuthRoutes(authService: AuthService): Router {
-  const router = Router();
-
-  router.post('/login', (req: Request, res: Response) => {
-    const { username } = req.body;
-    if (!username || typeof username !== 'string' || !username.trim()) {
-      res.status(400).json({ error: 'Username is required' });
-      return;
-    }
-    const result = authService.login(username.trim());
-    res.json(result);
-  });
-
-  return router;
-}
-```
-
-- [ ] **Step 2: Create board routes (JSON import)**
-
-```typescript
-// server/src/transport/http/board.routes.ts
-
-import { Router, Request, Response } from 'express';
-import { Server } from 'socket.io';
-import multer from 'multer';
-import { NoteService } from '../../services/note.service.js';
-import { AuthService } from '../../services/auth.service.js';
-import { ClientToServerEvents, ServerToClientEvents, SocketData } from '../../models/socket-events.js';
-import { DEFAULT_BOARD_ID } from '../../models/note.model.js';
-
-type AppServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
-
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
-
-export function createBoardRoutes(noteService: NoteService, authService: AuthService, io: AppServer): Router {
-  const router = Router();
-
-  router.post('/default/import', upload.single('file'), async (req: Request, res: Response) => {
-    // Verify JWT from Authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      res.status(401).json({ error: 'Authorization required' });
-      return;
-    }
-
-    let username: string;
-    try {
-      const payload = authService.verify(authHeader.slice(7));
-      username = payload.username;
-    } catch {
-      res.status(401).json({ error: 'Invalid token' });
-      return;
-    }
-
-    if (!req.file) {
-      res.status(400).json({ error: 'JSON file is required' });
-      return;
-    }
-
-    let notesData: unknown[];
-    try {
-      notesData = JSON.parse(req.file.buffer.toString('utf-8'));
-      if (!Array.isArray(notesData)) {
-        res.status(400).json({ error: 'File must contain a JSON array' });
-        return;
-      }
-    } catch {
-      res.status(400).json({ error: 'Invalid JSON' });
-      return;
-    }
-
-    // Validate each note has required fields
-    const validNotes = notesData.filter((n: any) =>
-      n && typeof n.text === 'string' && typeof n.x === 'number' && typeof n.y === 'number'
-    );
-
-    if (validNotes.length === 0) {
-      res.status(400).json({ error: 'No valid notes found in file' });
-      return;
-    }
-
-    const imported = await noteService.importNotes(validNotes as any[], username);
-    io.to(DEFAULT_BOARD_ID).emit('board:notes-imported', imported);
-    res.json({ imported: imported.length });
-  });
-
-  return router;
-}
-```
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add server/src/transport/http/
-git commit -m "apply: HTTP routes — auth login and JSON import with JWT verification"
-```
-
-### Task 14: apply — Redis config + server bootstrap
-
-**Files:**
-- Create: `server/src/config/redis.ts`
-- Create: `server/src/index.ts`
-
-- [ ] **Step 1: Create Redis client helper**
-
-```typescript
-// server/src/config/redis.ts
-
-import { createClient } from 'redis';
-
-export async function createRedisClients(redisUrl: string) {
-  const pubClient = createClient({ url: redisUrl });
-  const subClient = pubClient.duplicate();
-  await Promise.all([pubClient.connect(), subClient.connect()]);
-  console.log('Connected to Redis');
-  return { pubClient, subClient };
-}
-```
-
-- [ ] **Step 2: Create server bootstrap (composition root)**
-
-```typescript
-// server/src/index.ts
-
-import express from 'express';
-import cors from 'cors';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import { createAdapter } from '@socket.io/redis-adapter';
-import { connectToDatabase } from './config/database.js';
-import { createRedisClients } from './config/redis.js';
-import { MongoNoteRepository } from './repositories/note.repository.js';
-import { NoteService } from './services/note.service.js';
-import { AuthService } from './services/auth.service.js';
-import { createAuthMiddleware } from './transport/socket/auth.middleware.js';
-import { registerBoardHandlers } from './transport/socket/board.handlers.js';
-import { registerNoteHandlers } from './transport/socket/note.handlers.js';
-import { createAuthRoutes } from './transport/http/auth.routes.js';
-import { createBoardRoutes } from './transport/http/board.routes.js';
-import { ClientToServerEvents, ServerToClientEvents, SocketData } from './models/socket-events.js';
-
-const PORT = process.env.PORT || 3000;
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/collaborative-board';
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
-
-async function main() {
-  // Infrastructure
-  const db = await connectToDatabase(MONGODB_URI);
-  const { pubClient, subClient } = await createRedisClients(REDIS_URL);
-
-  // Dependencies
-  const noteRepository = new MongoNoteRepository(db.collection('notes'));
-  const noteService = new NoteService(noteRepository);
-  const authService = new AuthService(JWT_SECRET);
-
-  // Express
-  const app = express();
-  app.use(cors());
-  app.use(express.json());
-  app.use('/api/auth', createAuthRoutes(authService));
-
-  // Socket.io
-  const httpServer = createServer(app);
-  const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(httpServer, {
-    transports: ['websocket'],
-    cors: { origin: '*' },
-  });
-
-  // Redis adapter
-  io.adapter(createAdapter(pubClient, subClient));
-
-  // Board routes need io for broadcasting imports
-  app.use('/api/boards', createBoardRoutes(noteService, authService, io));
-
-  // Socket.io middleware + handlers
-  io.use(createAuthMiddleware(authService));
-  io.on('connection', (socket) => {
-    console.log(`User connected: ${socket.data.username} (${socket.id})`);
-    registerBoardHandlers(io, socket, noteService);
-    registerNoteHandlers(io, socket, noteService);
-  });
-
-  httpServer.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}
-
-main().catch(console.error);
-```
-
-- [ ] **Step 3: verify — Type-check the entire server**
-
-```bash
-cd server && npx tsc --noEmit
-```
-
-Expected: No errors.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add server/src/config/redis.ts server/src/index.ts
-git commit -m "apply: server bootstrap — Express + Socket.io + Redis adapter + DI wiring"
+Define the typed Socket.io event contract for the collaborative board.
+
+Events (see ../docs/specs/2026-11-17-collaborative-board-design.md Section 7):
+
+1. ClientToServerEvents:
+   - 'board:join': (ack: (notes: StickyNote[]) => void) => void
+   - 'note:create': (data: { text, x, y, color }, ack: (note: StickyNote) => void) => void
+   - 'note:update': (data: { id, text }) => void
+   - 'note:move': (data: { id, x, y }) => void
+
+2. ServerToClientEvents:
+   - 'note:created': (note: StickyNote) => void
+   - 'note:updated': (data: { id, text, updatedAt }) => void
+   - 'note:moved': (data: { id, x, y }) => void
+   - 'board:user-joined': (data: { username, users }) => void
+   - 'board:user-left': (data: { username, users }) => void
+   - 'board:notes-imported': (notes: StickyNote[]) => void
+
+3. SocketData: { username: string }
+
+Import StickyNote from note.model.ts.
+
+Constraints:
+- File: src/models/socket-events.ts
+- These interfaces are used by Socket.io Server<ServerToClientEvents, ClientToServerEvents, {}, SocketData>
 ```
 
 ---
 
-## Phase 4: APPLY — Frontend Implementation
+### Change 3: `repository-interface`
 
-### Task 15: apply — API service (HTTP client)
-
-**Files:**
-- Create: `client/src/services/api.ts`
-
-- [ ] **Step 1: Create API client**
-
-```typescript
-// client/src/services/api.ts
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-
-export interface LoginResponse {
-  token: string;
-  userId: string;
-  username: string;
-}
-
-export async function login(username: string): Promise<LoginResponse> {
-  const res = await fetch(`${API_URL}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username }),
-  });
-  if (!res.ok) {
-    throw new Error('Login failed');
-  }
-  return res.json();
-}
-
-export async function importNotes(file: File, token: string): Promise<{ imported: number }> {
-  const formData = new FormData();
-  formData.append('file', file);
-  const res = await fetch(`${API_URL}/api/boards/default/import`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: formData,
-  });
-  if (!res.ok) {
-    throw new Error('Import failed');
-  }
-  return res.json();
-}
+**Propose command:**
+```
+/project:opsx-propose repository-interface
 ```
 
-- [ ] **Step 2: Commit**
-
-```bash
-git add client/src/services/api.ts
-git commit -m "apply: frontend API service — login and import HTTP calls"
+**Context to provide:**
 ```
-
-### Task 16: apply — useSocket hook
-
-**Files:**
-- Create: `client/src/hooks/useSocket.ts`
-
-- [ ] **Step 1: Create socket connection hook**
-
-```typescript
-// client/src/hooks/useSocket.ts
-
-import { useEffect, useRef, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { ServerToClientEvents, ClientToServerEvents } from '../models/note.model';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-
-type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
-
-export function useSocket(token: string | null) {
-  const socketRef = useRef<AppSocket | null>(null);
-  const [connected, setConnected] = useState(false);
-
-  useEffect(() => {
-    if (!token) return;
-
-    const socket: AppSocket = io(API_URL, {
-      transports: ['websocket'],
-      auth: { token },
-    });
-
-    socket.on('connect', () => setConnected(true));
-    socket.on('disconnect', () => setConnected(false));
-
-    socketRef.current = socket;
-
-    return () => {
-      socket.disconnect();
-      socketRef.current = null;
-    };
-  }, [token]);
-
-  return { socket: socketRef.current, connected };
-}
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add client/src/hooks/useSocket.ts
-git commit -m "apply: useSocket hook — typed Socket.io connection with auth"
-```
-
-### Task 17: apply — useBoard hook
-
-**Files:**
-- Create: `client/src/hooks/useBoard.ts`
-
-- [ ] **Step 1: Create board state management hook**
-
-```typescript
-// client/src/hooks/useBoard.ts
-
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { Socket } from 'socket.io-client';
-import { StickyNote, NoteColor, ServerToClientEvents, ClientToServerEvents } from '../models/note.model';
-
-type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
-
-export function useBoard(socket: AppSocket | null) {
-  const [notes, setNotes] = useState<StickyNote[]>([]);
-  const [users, setUsers] = useState<string[]>([]);
-  const [joined, setJoined] = useState(false);
-  const throttleTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
-
-  // Join board and load initial notes
-  useEffect(() => {
-    if (!socket) return;
-
-    socket.emit('board:join', (initialNotes) => {
-      setNotes(initialNotes);
-      setJoined(true);
-    });
-
-    // Listen for remote events
-    socket.on('note:created', (note) => {
-      setNotes((prev) => [...prev, note]);
-    });
-
-    socket.on('note:updated', (data) => {
-      setNotes((prev) =>
-        prev.map((n) => (n.id === data.id ? { ...n, text: data.text, updatedAt: data.updatedAt } : n)),
-      );
-    });
-
-    socket.on('note:moved', (data) => {
-      setNotes((prev) =>
-        prev.map((n) => (n.id === data.id ? { ...n, x: data.x, y: data.y } : n)),
-      );
-    });
-
-    socket.on('board:user-joined', (data) => {
-      setUsers(data.users);
-    });
-
-    socket.on('board:user-left', (data) => {
-      setUsers(data.users);
-    });
-
-    socket.on('board:notes-imported', (importedNotes) => {
-      setNotes((prev) => [...prev, ...importedNotes]);
-    });
-
-    return () => {
-      socket.off('note:created');
-      socket.off('note:updated');
-      socket.off('note:moved');
-      socket.off('board:user-joined');
-      socket.off('board:user-left');
-      socket.off('board:notes-imported');
-    };
-  }, [socket]);
-
-  const createNote = useCallback(
-    (text: string, x: number, y: number, color: NoteColor) => {
-      if (!socket) return;
-      socket.emit('note:create', { text, x, y, color }, (note) => {
-        setNotes((prev) => [...prev, note]);
-      });
-    },
-    [socket],
-  );
-
-  const updateNote = useCallback(
-    (id: string, text: string) => {
-      if (!socket) return;
-      // Optimistic update
-      setNotes((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, text, updatedAt: new Date() } : n)),
-      );
-      socket.emit('note:update', { id, text });
-    },
-    [socket],
-  );
-
-  const moveNote = useCallback(
-    (id: string, x: number, y: number) => {
-      if (!socket) return;
-      // Optimistic update
-      setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, x, y } : n)));
-      // Throttle socket emit
-      const existing = throttleTimers.current.get(id);
-      if (existing) clearTimeout(existing);
-      const timer = setTimeout(() => {
-        socket.emit('note:move', { id, x, y });
-        throttleTimers.current.delete(id);
-      }, 50);
-      throttleTimers.current.set(id, timer);
-    },
-    [socket],
-  );
-
-  return { notes, users, joined, createNote, updateNote, moveNote };
-}
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add client/src/hooks/useBoard.ts
-git commit -m "apply: useBoard hook — state management with optimistic updates and throttling"
-```
-
-### Task 18: apply — UsernamePrompt component
-
-**Files:**
-- Create: `client/src/components/UsernamePrompt.tsx`
-- Create: `client/src/components/UsernamePrompt.css`
-
-- [ ] **Step 1: Create UsernamePrompt component**
-
-```tsx
-// client/src/components/UsernamePrompt.tsx
-
-import { useState, FormEvent } from 'react';
-import './UsernamePrompt.css';
-
-interface Props {
-  onLogin: (username: string) => void;
-  loading: boolean;
-}
-
-export function UsernamePrompt({ onLogin, loading }: Props) {
-  const [username, setUsername] = useState('');
-
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    const trimmed = username.trim();
-    if (trimmed) {
-      onLogin(trimmed);
-    }
-  };
-
-  return (
-    <div className="username-prompt">
-      <div className="username-prompt__card">
-        <h1>Collaborative Board</h1>
-        <p>Enter your name to join the board</p>
-        <form onSubmit={handleSubmit}>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Your name"
-            autoFocus
-            disabled={loading}
-            maxLength={30}
-          />
-          <button type="submit" disabled={!username.trim() || loading}>
-            {loading ? 'Joining...' : 'Join Board'}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-```
-
-- [ ] **Step 2: Create styles**
-
-```css
-/* client/src/components/UsernamePrompt.css */
-
-.username-prompt {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
-  background: #f5f5f5;
-}
-
-.username-prompt__card {
-  background: white;
-  padding: 2rem;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-  text-align: center;
-  max-width: 360px;
-  width: 100%;
-}
-
-.username-prompt__card h1 {
-  margin: 0 0 0.5rem;
-  font-size: 1.5rem;
-  color: #333;
-}
-
-.username-prompt__card p {
-  margin: 0 0 1.5rem;
-  color: #666;
-}
-
-.username-prompt__card form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.username-prompt__card input {
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  font-size: 1rem;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.username-prompt__card input:focus {
-  border-color: #4a90d9;
-}
-
-.username-prompt__card button {
-  padding: 0.75rem;
-  background: #4a90d9;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.username-prompt__card button:hover:not(:disabled) {
-  background: #357abd;
-}
-
-.username-prompt__card button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-```
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add client/src/components/UsernamePrompt.tsx client/src/components/UsernamePrompt.css
-git commit -m "apply: UsernamePrompt component with form and styles"
-```
-
-### Task 19: apply — StickyNote component
-
-**Files:**
-- Create: `client/src/components/StickyNote.tsx`
-- Create: `client/src/components/StickyNote.css`
-
-- [ ] **Step 1: Create StickyNote component**
-
-```tsx
-// client/src/components/StickyNote.tsx
-
-import { useState, useRef, useEffect, MouseEvent, KeyboardEvent } from 'react';
-import { StickyNote as StickyNoteType } from '../models/note.model';
-import './StickyNote.css';
-
-interface Props {
-  note: StickyNoteType;
-  onMove: (id: string, x: number, y: number) => void;
-  onUpdate: (id: string, text: string) => void;
-}
-
-const COLOR_MAP: Record<string, string> = {
-  yellow: '#fff9c4',
-  blue: '#bbdefb',
-  green: '#c8e6c9',
-  pink: '#f8bbd0',
-  orange: '#ffe0b2',
-};
-
-export function StickyNote({ note, onMove, onUpdate }: Props) {
-  const [editing, setEditing] = useState(false);
-  const [editText, setEditText] = useState(note.text);
-  const [dragging, setDragging] = useState(false);
-  const dragOffset = useRef({ x: 0, y: 0 });
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (!editing) {
-      setEditText(note.text);
-    }
-  }, [note.text, editing]);
-
-  const handleMouseDown = (e: MouseEvent) => {
-    if (editing) return;
-    e.preventDefault();
-    setDragging(true);
-    dragOffset.current = {
-      x: e.clientX - note.x,
-      y: e.clientY - note.y,
-    };
-  };
-
-  useEffect(() => {
-    if (!dragging) return;
-
-    const handleMouseMove = (e: globalThis.MouseEvent) => {
-      const newX = e.clientX - dragOffset.current.x;
-      const newY = e.clientY - dragOffset.current.y;
-      onMove(note.id, newX, newY);
-    };
-
-    const handleMouseUp = () => {
-      setDragging(false);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [dragging, note.id, onMove]);
-
-  const handleDoubleClick = () => {
-    setEditing(true);
-    setTimeout(() => textareaRef.current?.focus(), 0);
-  };
-
-  const saveEdit = () => {
-    setEditing(false);
-    const trimmed = editText.trim();
-    if (trimmed && trimmed !== note.text) {
-      onUpdate(note.id, trimmed);
-    } else {
-      setEditText(note.text);
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      saveEdit();
-    }
-    if (e.key === 'Escape') {
-      setEditing(false);
-      setEditText(note.text);
-    }
-  };
-
-  return (
-    <div
-      className={`sticky-note ${dragging ? 'sticky-note--dragging' : ''}`}
-      style={{
-        left: note.x,
-        top: note.y,
-        backgroundColor: COLOR_MAP[note.color] || COLOR_MAP.yellow,
-      }}
-      onMouseDown={handleMouseDown}
-      onDoubleClick={handleDoubleClick}
-    >
-      {editing ? (
-        <textarea
-          ref={textareaRef}
-          className="sticky-note__editor"
-          value={editText}
-          onChange={(e) => setEditText(e.target.value)}
-          onBlur={saveEdit}
-          onKeyDown={handleKeyDown}
-          maxLength={500}
-        />
-      ) : (
-        <p className="sticky-note__text">{note.text}</p>
-      )}
-      <span className="sticky-note__author">{note.author}</span>
-    </div>
-  );
-}
-```
-
-- [ ] **Step 2: Create styles**
-
-```css
-/* client/src/components/StickyNote.css */
-
-.sticky-note {
-  position: absolute;
-  width: 200px;
-  min-height: 120px;
-  padding: 12px;
-  border-radius: 4px;
-  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.15);
-  cursor: grab;
-  user-select: none;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  transition: box-shadow 0.2s;
-}
-
-.sticky-note:not(.sticky-note--dragging) {
-  transition: left 0.15s ease-out, top 0.15s ease-out, box-shadow 0.2s;
-}
-
-.sticky-note--dragging {
-  cursor: grabbing;
-  box-shadow: 4px 4px 16px rgba(0, 0, 0, 0.25);
-  z-index: 1000;
-}
-
-.sticky-note__text {
-  margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.4;
-  word-break: break-word;
-  color: #333;
-  flex: 1;
-}
-
-.sticky-note__editor {
-  width: 100%;
-  min-height: 80px;
-  border: none;
-  background: transparent;
-  font-size: 0.9rem;
-  line-height: 1.4;
-  color: #333;
-  resize: none;
-  outline: none;
-  font-family: inherit;
-  flex: 1;
-  cursor: text;
-}
-
-.sticky-note__author {
-  font-size: 0.7rem;
-  color: #888;
-  margin-top: 8px;
-  text-align: right;
-}
-```
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add client/src/components/StickyNote.tsx client/src/components/StickyNote.css
-git commit -m "apply: StickyNote component — drag & drop, inline edit, color"
-```
-
-### Task 20: apply — Board + UserList + ColorPicker components
-
-**Files:**
-- Create: `client/src/components/Board.tsx`
-- Create: `client/src/components/Board.css`
-- Create: `client/src/components/UserList.tsx`
-- Create: `client/src/components/UserList.css`
-
-- [ ] **Step 1: Create UserList component**
-
-```tsx
-// client/src/components/UserList.tsx
-
-import './UserList.css';
-
-interface Props {
-  users: string[];
-  currentUser: string;
-  connected: boolean;
-}
-
-export function UserList({ users, currentUser, connected }: Props) {
-  return (
-    <div className="user-list">
-      <span className={`user-list__status ${connected ? 'user-list__status--connected' : ''}`} />
-      <span className="user-list__label">{connected ? 'Connected' : 'Reconnecting...'}</span>
-      {users.map((user) => (
-        <span key={user} className={`user-list__user ${user === currentUser ? 'user-list__user--me' : ''}`}>
-          {user}
-        </span>
-      ))}
-    </div>
-  );
-}
-```
-
-```css
-/* client/src/components/UserList.css */
-
-.user-list {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: white;
-  border-radius: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  font-size: 0.85rem;
-}
-
-.user-list__status {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ccc;
-}
-
-.user-list__status--connected {
-  background: #4caf50;
-}
-
-.user-list__label {
-  color: #666;
-  margin-right: 4px;
-}
-
-.user-list__user {
-  padding: 2px 10px;
-  background: #e3f2fd;
-  border-radius: 12px;
-  color: #1976d2;
-}
-
-.user-list__user--me {
-  background: #1976d2;
-  color: white;
-}
-```
-
-- [ ] **Step 2: Create Board component**
-
-```tsx
-// client/src/components/Board.tsx
-
-import { useRef, MouseEvent, useState, ChangeEvent } from 'react';
-import { StickyNote as StickyNoteType, NoteColor, NOTE_COLORS } from '../models/note.model';
-import { StickyNote } from './StickyNote';
-import { UserList } from './UserList';
-import { importNotes } from '../services/api';
-import './Board.css';
-
-interface Props {
-  notes: StickyNoteType[];
-  users: string[];
-  username: string;
-  connected: boolean;
-  token: string;
-  onCreateNote: (text: string, x: number, y: number, color: NoteColor) => void;
-  onUpdateNote: (id: string, text: string) => void;
-  onMoveNote: (id: string, x: number, y: number) => void;
-  onLogout: () => void;
-}
-
-export function Board({ notes, users, username, connected, token, onCreateNote, onUpdateNote, onMoveNote, onLogout }: Props) {
-  const boardRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedColor, setSelectedColor] = useState<NoteColor>('yellow');
-
-  const handleBoardClick = (e: MouseEvent<HTMLDivElement>) => {
-    if (e.target !== boardRef.current) return;
-    const rect = boardRef.current!.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    onCreateNote('New note', x, y, selectedColor);
-  };
-
-  const handleImport = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      await importNotes(file, token);
-    } catch (err) {
-      console.error('Import failed:', err);
-    }
-    e.target.value = '';
-  };
-
-  return (
-    <div className="board-container">
-      <div className="board-toolbar">
-        <div className="board-toolbar__left">
-          <span className="board-toolbar__title">Collaborative Board</span>
-          <div className="board-toolbar__colors">
-            {NOTE_COLORS.map((color) => (
-              <button
-                key={color}
-                className={`board-toolbar__color ${color === selectedColor ? 'board-toolbar__color--selected' : ''}`}
-                style={{ backgroundColor: color === 'yellow' ? '#fff9c4' : color === 'blue' ? '#bbdefb' : color === 'green' ? '#c8e6c9' : color === 'pink' ? '#f8bbd0' : '#ffe0b2' }}
-                onClick={() => setSelectedColor(color)}
-                title={color}
-              />
-            ))}
-          </div>
-          <button className="board-toolbar__btn" onClick={() => fileInputRef.current?.click()}>
-            Import JSON
-          </button>
-          <input ref={fileInputRef} type="file" accept=".json" onChange={handleImport} hidden />
-        </div>
-        <div className="board-toolbar__right">
-          <UserList users={users} currentUser={username} connected={connected} />
-          <button className="board-toolbar__btn board-toolbar__btn--logout" onClick={onLogout}>
-            Logout
-          </button>
-        </div>
-      </div>
-      <div className="board" ref={boardRef} onClick={handleBoardClick}>
-        {notes.map((note) => (
-          <StickyNote
-            key={note.id}
-            note={note}
-            onMove={onMoveNote}
-            onUpdate={onUpdateNote}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-```
-
-- [ ] **Step 3: Create Board styles**
-
-```css
-/* client/src/components/Board.css */
-
-.board-container {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-}
-
-.board-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
-  background: white;
-  border-bottom: 1px solid #e0e0e0;
-  z-index: 100;
-}
-
-.board-toolbar__left,
-.board-toolbar__right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.board-toolbar__title {
-  font-weight: 600;
-  font-size: 1.1rem;
-  color: #333;
-}
-
-.board-toolbar__colors {
-  display: flex;
-  gap: 4px;
-}
-
-.board-toolbar__color {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-
-.board-toolbar__color--selected {
-  border-color: #333;
-}
-
-.board-toolbar__btn {
-  padding: 6px 14px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  background: white;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.board-toolbar__btn:hover {
-  background: #f5f5f5;
-}
-
-.board-toolbar__btn--logout {
-  color: #d32f2f;
-  border-color: #d32f2f;
-}
-
-.board-toolbar__btn--logout:hover {
-  background: #ffebee;
-}
-
-.board {
-  flex: 1;
-  position: relative;
-  background: #fafafa;
-  overflow: hidden;
-  cursor: crosshair;
-}
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add client/src/components/Board.tsx client/src/components/Board.css client/src/components/UserList.tsx client/src/components/UserList.css
-git commit -m "apply: Board, UserList components with toolbar, color picker, import, logout"
-```
-
-### Task 21: apply — App.tsx (root with auth gate)
-
-**Files:**
-- Modify: `client/src/App.tsx`
-- Modify: `client/src/index.css` (global reset)
-- Delete: `client/src/App.css` (Vite default)
-
-- [ ] **Step 1: Create App.tsx**
-
-```tsx
-// client/src/App.tsx
-
-import { useState, useCallback, useEffect } from 'react';
-import { UsernamePrompt } from './components/UsernamePrompt';
-import { Board } from './components/Board';
-import { useSocket } from './hooks/useSocket';
-import { useBoard } from './hooks/useBoard';
-import { login } from './services/api';
-
-function App() {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
-  const [username, setUsername] = useState<string>(() => localStorage.getItem('username') || '');
-  const [loginLoading, setLoginLoading] = useState(false);
-
-  const { socket, connected } = useSocket(token);
-  const { notes, users, joined, createNote, updateNote, moveNote } = useBoard(socket);
-
-  const handleLogin = useCallback(async (name: string) => {
-    setLoginLoading(true);
-    try {
-      const result = await login(name);
-      localStorage.setItem('token', result.token);
-      localStorage.setItem('username', result.username);
-      setToken(result.token);
-      setUsername(result.username);
-    } catch (err) {
-      console.error('Login failed:', err);
-    } finally {
-      setLoginLoading(false);
-    }
-  }, []);
-
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('username');
-    setToken(null);
-    setUsername('');
-  }, []);
-
-  if (!token) {
-    return <UsernamePrompt onLogin={handleLogin} loading={loginLoading} />;
-  }
-
-  return (
-    <Board
-      notes={notes}
-      users={users}
-      username={username}
-      connected={connected}
-      token={token}
-      onCreateNote={createNote}
-      onUpdateNote={updateNote}
-      onMoveNote={moveNote}
-      onLogout={handleLogout}
-    />
-  );
-}
-
-export default App;
-```
-
-- [ ] **Step 2: Update global styles**
-
-```css
-/* client/src/index.css */
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-```
-
-- [ ] **Step 3: Clean up Vite defaults**
-
-Delete `client/src/App.css` if it exists. Update `client/src/main.tsx` to only import `index.css`:
-
-```tsx
-// client/src/main.tsx
-
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
-
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add client/src/App.tsx client/src/index.css client/src/main.tsx
-git rm -f client/src/App.css 2>/dev/null; true
-git commit -m "apply: App root component with auth gate, login, logout"
+Define the INoteRepository interface and implement MongoNoteRepository.
+
+Interface (see ../docs/specs/2026-11-17-collaborative-board-design.md Section 8):
+
+INoteRepository:
+  - findByBoardId(boardId: string): Promise<StickyNote[]>
+  - create(input: CreateNoteInput): Promise<StickyNote>
+  - updateText(id: string, text: string): Promise<StickyNote | null>
+  - updatePosition(id: string, x: number, y: number): Promise<StickyNote | null>
+  - createMany(inputs: CreateNoteInput[]): Promise<StickyNote[]>
+
+MongoNoteRepository implements INoteRepository using MongoDB native driver:
+  - constructor(collection: Collection)
+  - Generates UUID for id field
+  - Sets createdAt/updatedAt on create
+  - Uses $set with updatedAt on updates
+  - Uses insertMany for createMany
+
+Also implement InMemoryNoteRepository for testing:
+  - Stores notes in a Map<string, StickyNote>
+  - Same interface, in-memory operations
+
+Also create database.ts config:
+  - connectToMongo(uri: string): Promise<{ db, client }>
+  - Create index on boardId
+
+Constraints:
+- Interface + MongoNoteRepository: src/repositories/note.repository.ts
+- InMemoryNoteRepository: tests/helpers/mock.repository.ts
+- Database config: src/config/database.ts
 ```
 
 ---
 
-## Phase 5: Infrastructure
+### Change 4: `services`
 
-### Task 22: apply — Dockerfiles
+**Propose command:**
+```
+/project:opsx-propose services
+```
+
+**Context to provide:**
+```
+Implement AuthService and NoteService.
+
+AuthService (see spec Section 5):
+  - constructor(jwtSecret: string)
+  - login(username: string): { token, username } — generates JWT with { username } payload, 24h expiry
+  - verifyToken(token: string): { username } | null — verifies JWT, returns payload or null
+
+NoteService (see spec Sections 7-10):
+  - constructor(noteRepository: INoteRepository)
+  - createNote(input: CreateNoteInput): Promise<StickyNote> — validates text (non-empty, max 500 chars), delegates to repo
+  - updateNoteText(id: string, text: string): Promise<StickyNote | null> — validates text, delegates to repo
+  - moveNote(id: string, x: number, y: number): Promise<StickyNote | null> — delegates to repo
+  - getBoardNotes(boardId: string): Promise<StickyNote[]> — delegates to repo
+  - importNotes(notes: ImportNoteInput[], boardId: string, author: string): Promise<StickyNote[]> — validates each note, sets defaults, bulk creates
+
+Also create unit tests with Vitest:
+  - Test NoteService with InMemoryNoteRepository
+  - Test createNote (happy path, empty text, long text)
+  - Test updateNoteText, moveNote, getBoardNotes
+  - Test importNotes (happy path, validation)
+
+Constraints:
+- AuthService: src/services/auth.service.ts (uses jsonwebtoken package)
+- NoteService: src/services/note.service.ts
+- Tests: tests/services/note.service.test.ts
+- Services use constructor injection — depend on INoteRepository interface, not concrete implementation
+```
+
+---
+
+### Change 5: `transport-layer`
+
+**Propose command:**
+```
+/project:opsx-propose transport-layer
+```
+
+**Context to provide:**
+```
+Implement Socket.io handlers and Express routes.
+
+Socket.io handlers (see spec Section 7):
+
+1. Auth middleware: verifies JWT token from socket.handshake.auth.token, sets socket.data.username
+2. Board handlers:
+   - board:join → calls noteService.getBoardNotes, joins socket to room, emits board:user-joined to room
+   - disconnect → emits board:user-left to room
+3. Note handlers:
+   - note:create → calls noteService.createNote, ack result, broadcast note:created to room (exclude sender)
+   - note:update → calls noteService.updateNoteText, broadcast note:updated to room (exclude sender)
+   - note:move → calls noteService.moveNote, broadcast note:moved to room (exclude sender)
+
+Express routes (see spec Section 7):
+
+1. POST /api/auth/login — body: { username }, returns { token, username }
+2. POST /api/boards/default/import — multer file upload, JWT auth header, parses JSON, calls noteService.importNotes, broadcasts board:notes-imported via io.to(room)
+
+Constraints:
+- Socket handlers: src/transport/socket/board.handlers.ts, src/transport/socket/note.handlers.ts
+- HTTP routes: src/transport/http/auth.routes.ts, src/transport/http/board.routes.ts
+- Handlers are thin: parse input → call service → emit/respond
+- Use typed Socket.io server: Server<ClientToServerEvents, ServerToClientEvents, {}, SocketData>
+```
+
+---
+
+### Change 6: `server-bootstrap`
+
+**Propose command:**
+```
+/project:opsx-propose server-bootstrap
+```
+
+**Context to provide:**
+```
+Wire everything together in the composition root (index.ts) and add Redis adapter config.
+
+Composition root (see spec Section 8):
+  - Connect to MongoDB
+  - Connect to Redis (pub + sub clients)
+  - Create MongoNoteRepository
+  - Create NoteService, AuthService
+  - Create Express app with CORS
+  - Create HTTP server
+  - Create Socket.io server with WebSocket-only transport, Redis adapter
+  - Register HTTP routes
+  - Register Socket.io auth middleware and event handlers
+  - Start server on PORT env var
+
+Redis config (see spec Section 4):
+  - src/config/redis.ts: connectToRedis(url: string) → { pubClient, subClient }
+  - Uses @socket.io/redis-adapter createAdapter
+
+Environment variables:
+  - MONGODB_URI, REDIS_URL, JWT_SECRET, PORT
+
+Constraints:
+- Composition root: src/index.ts
+- Redis config: src/config/redis.ts
+- No DI framework — manual constructor injection
+- WebSocket-only: transports: ['websocket'] in Socket.io server config
+```
+
+---
+
+## Phase 3: Frontend Changes (via OpenSpec)
+
+Run all frontend changes from the `client/` directory.
+
+### Change 7: `client-models`
+
+**Propose command:**
+```
+/project:opsx-propose client-models
+```
+
+**Context to provide:**
+```
+Define client-side domain types that mirror the server types.
+
+Types needed (mirror of server types for the client):
+
+1. StickyNote interface: id, text, x, y, author, color (NoteColor), boardId, createdAt (Date), updatedAt (Date)
+2. NoteColor type: 'yellow' | 'blue' | 'green' | 'pink' | 'orange'
+3. NOTE_COLORS array constant
+4. ServerToClientEvents interface (same as server)
+5. ClientToServerEvents interface (same as server)
+
+Constraints:
+- File: src/models/note.model.ts
+- These are the client's own definitions — not imported from server
+```
+
+---
+
+### Change 8: `api-service`
+
+**Propose command:**
+```
+/project:opsx-propose api-service
+```
+
+**Context to provide:**
+```
+Implement HTTP API service for login and import.
+
+Functions:
+1. login(username: string): Promise<{ token, username }> — POST to /api/auth/login
+2. importNotes(file: File, token: string): Promise<{ imported: number }> — POST FormData to /api/boards/default/import with Bearer token
+
+API_URL from VITE_API_URL env var, default 'http://localhost:3000'.
+
+Constraints:
+- File: src/services/api.ts
+- Use fetch API (no axios)
+```
+
+---
+
+### Change 9: `hooks`
+
+**Propose command:**
+```
+/project:opsx-propose hooks
+```
+
+**Context to provide:**
+```
+Implement React hooks for socket connection and board state management.
+
+1. useSocket(token: string | null):
+   - Creates Socket.io connection with WebSocket-only transport and auth token
+   - Returns { socket, connected }
+   - Cleans up on unmount or token change
+
+2. useBoard(socket: AppSocket | null):
+   - Manages notes state (StickyNote[]), users state (string[]), joined state
+   - On mount: emits board:join with ack callback to get initial notes
+   - Listens for: note:created, note:updated, note:moved, board:user-joined, board:user-left, board:notes-imported
+   - Provides: createNote, updateNote, moveNote functions
+   - createNote: emits note:create with ack, adds to local state
+   - updateNote: optimistic update + emit note:update
+   - moveNote: optimistic update + throttled (50ms) emit note:move
+
+Constraints:
+- useSocket: src/hooks/useSocket.ts
+- useBoard: src/hooks/useBoard.ts
+- Use typed Socket: Socket<ServerToClientEvents, ClientToServerEvents>
+```
+
+---
+
+### Change 10: `components`
+
+**Propose command:**
+```
+/project:opsx-propose components
+```
+
+**Context to provide:**
+```
+Implement all React components and styles.
+
+Components:
+
+1. UsernamePrompt: form with username input + submit button, calls onLogin(username)
+2. StickyNote: positioned absolutely, draggable (mousedown/move/up), double-click to edit, color-coded
+3. UserList: shows connected users with status indicator
+4. Board: main board area with toolbar (color picker, import button, logout), renders StickyNote children, click board to create note
+5. App: root component with auth gate (UsernamePrompt if no token, Board if authenticated), login/logout logic with localStorage
+
+Styles: plain CSS, one file per component. Keep it simple but polished (see spec Section 9 UX decisions).
+
+Constraints:
+- Components: src/components/UsernamePrompt.tsx, StickyNote.tsx, UserList.tsx, Board.tsx
+- Root: src/App.tsx, src/index.css, src/main.tsx
+- Remove Vite default App.css
+```
+
+---
+
+## Phase 4: Infrastructure
+
+### Task 3: apply — Service CLAUDE.md and README files
+
+**Files:**
+- Create: `server/CLAUDE.md`
+- Create: `server/README.md`
+- Create: `client/CLAUDE.md`
+- Create: `client/README.md`
+
+- [ ] **Step 1: Create server CLAUDE.md**
+
+```markdown
+# Collaborative Board — Server
+
+## What This Is
+
+Backend service for a real-time collaborative board with sticky notes. Node.js + Express + Socket.io + TypeScript.
+
+## Architecture
+
+Layered with hexagonal principles:
+
+```
+src/
+├── models/           # Domain types (StickyNote, events, inputs)
+├── repositories/     # INoteRepository interface + MongoNoteRepository
+├── services/         # NoteService, AuthService (business logic)
+├── transport/        # Socket.io handlers + Express routes (thin)
+│   ├── http/         # auth.routes.ts, board.routes.ts
+│   └── socket/       # board.handlers.ts, note.handlers.ts
+├── config/           # database.ts, redis.ts
+└── index.ts          # Composition root (DI wiring)
+```
+
+## Rules
+
+- **Transport layer is thin**: handlers parse input → call service → emit/respond. No business logic.
+- **Services depend on interfaces**: `NoteService` takes `INoteRepository`, not `MongoNoteRepository`.
+- **No DI framework**: manual constructor injection in `index.ts`.
+- **Domain types are the contract**: `StickyNote`, event interfaces, input types define the API. Changes to types must be reflected in all layers.
+- **WebSocket-only**: Socket.io configured with `transports: ['websocket']`. No HTTP polling fallback.
+- **Last-write-wins**: no conflict resolution beyond MongoDB's single-document atomicity.
+
+## Key Decisions
+
+| Decision | Reference |
+|----------|-----------|
+| MongoDB native driver (not Mongoose) | `../docs/mongodb-guide.md` |
+| Layered + hexagonal principles | `../docs/backend-architecture-guide.md` |
+| Socket.io WebSocket-only | `../docs/websockets-socketio-guide.md` Section 5 |
+| Redis Pub/Sub for scaling | `../docs/specs/2026-11-17-collaborative-board-design.md` Section 4 |
+
+## OpenSpec
+
+Spec-driven development workflow:
+- `openspec/config.yaml` — project context and rules
+- `openspec/changes/` — active changes (propose → apply → sync → archive)
+- `openspec/specs/` — accumulated specs from completed changes
+- `.claude/commands/` — OpenSpec slash commands
+
+## Testing
+
+- Vitest for unit tests
+- InMemoryNoteRepository as mock
+- Tests in `tests/services/`
+- Run: `npm test`
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MONGODB_URI` | `mongodb://localhost:27017/collaborative-board` | MongoDB connection string |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
+| `JWT_SECRET` | — | Secret for JWT signing |
+| `PORT` | `3000` | HTTP server port |
+```
+
+- [ ] **Step 2: Create client CLAUDE.md**
+
+```markdown
+# Collaborative Board — Client
+
+## What This Is
+
+React frontend for a real-time collaborative board with sticky notes. React + TypeScript + Vite + Socket.io-client.
+
+## Architecture
+
+```
+src/
+├── models/           # Domain types (mirrors server types)
+├── hooks/            # useSocket, useBoard (state + logic)
+├── components/       # UsernamePrompt, StickyNote, Board, UserList
+├── services/         # api.ts (HTTP calls: login, import)
+├── App.tsx           # Root with auth gate
+├── main.tsx          # Entry point
+└── index.css         # Global styles
+```
+
+## Rules
+
+- **Components are thin**: render + call hook functions. Business logic lives in hooks.
+- **Optimistic updates**: UI updates immediately, server sync is async.
+- **Throttled drag events**: ~50ms intervals, not per pixel.
+- **CSS transitions on remote notes**: smooth position animations for notes moved by other users.
+- **Domain types are independent**: client defines its own types (not imported from server).
+
+## Key Decisions
+
+| Decision | Reference |
+|----------|-----------|
+| WebSocket-only transport | No `transports` fallback, direct WS connection |
+| Plain CSS (no CSS-in-JS) | Simplicity for 4-hour scope |
+| No frontend tests | Simplicity — server tests cover business logic |
+
+## OpenSpec
+
+- `openspec/config.yaml` — project context and rules
+- `openspec/changes/` — active changes
+- `openspec/specs/` — accumulated specs
+- `.claude/commands/` — OpenSpec slash commands
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VITE_API_URL` | `http://localhost:3000` | Backend API URL |
+```
+
+- [ ] **Step 3: Create server README**
+
+```markdown
+# Collaborative Board — Server
+
+Real-time backend for a collaborative sticky-notes board.
+
+## Quick Start (standalone)
+
+```bash
+npm install
+npm run dev
+```
+
+Requires MongoDB and Redis running locally (or use the root docker-compose).
+
+## Run Tests
+
+```bash
+npm test
+npm run test:watch  # watch mode
+```
+
+## Tech Stack
+
+- Node.js + TypeScript
+- Express (HTTP routes)
+- Socket.io (real-time events, WebSocket-only)
+- MongoDB 7 (native driver)
+- Redis 7 (Socket.io Pub/Sub adapter)
+- JWT (authentication)
+- Vitest (testing)
+```
+
+- [ ] **Step 4: Create client README**
+
+```markdown
+# Collaborative Board — Client
+
+React frontend for a collaborative sticky-notes board.
+
+## Quick Start (standalone)
+
+```bash
+npm install
+npm run dev
+```
+
+Opens at http://localhost:5173. Requires the server running at http://localhost:3000.
+
+## Tech Stack
+
+- React 18 + TypeScript
+- Vite
+- Socket.io-client (WebSocket-only)
+- Plain CSS
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add server/CLAUDE.md server/README.md client/CLAUDE.md client/README.md
+git commit -m "feat: add CLAUDE.md and README for both server and client services"
+```
+
+### Task 4: apply — Dockerfiles
 
 **Files:**
 - Create: `server/Dockerfile`
@@ -2342,7 +927,7 @@ git add server/Dockerfile server/.dockerignore client/Dockerfile client/.dockeri
 git commit -m "apply: Dockerfiles for server and client"
 ```
 
-### Task 23: apply — Docker Compose (default)
+### Task 5: apply — Docker Compose (default)
 
 **Files:**
 - Create: `docker-compose.yml`
@@ -2415,7 +1000,7 @@ git add docker-compose.yml
 git commit -m "apply: Docker Compose default config (single instance)"
 ```
 
-### Task 24: apply — Docker Compose (scaling demo)
+### Task 6: apply — Docker Compose (scaling demo)
 
 **Files:**
 - Create: `docker-compose.scaling.yml`
@@ -2553,9 +1138,9 @@ git commit -m "apply: scaling Docker Compose — 3 server instances + Nginx + Re
 
 ---
 
-## Phase 6: Seed & Documentation
+## Phase 5: Seed & Documentation
 
-### Task 25: apply — Seed script
+### Task 7: apply — Seed script
 
 **Files:**
 - Create: `scripts/seed.sh`
@@ -2631,7 +1216,7 @@ git add scripts/seed.sh
 git commit -m "apply: seed script — auto-imports sample notes on docker-compose up"
 ```
 
-### Task 26: apply — Sample data file
+### Task 8: apply — Sample data file
 
 **Files:**
 - Create: `sample-data/notes.json`
@@ -2656,7 +1241,7 @@ git add sample-data/
 git commit -m "apply: sample notes.json for import testing"
 ```
 
-### Task 27: apply — README
+### Task 9: apply — README
 
 **Files:**
 - Create: `README.md`
@@ -2750,7 +1335,7 @@ git add README.md
 git commit -m "apply: README with setup, demo instructions, and architecture overview"
 ```
 
-### Task 28: apply — Write-up
+### Task 10: apply — Write-up
 
 **Files:**
 - Create: `WRITEUP.md`
@@ -2762,7 +1347,7 @@ git commit -m "apply: README with setup, demo instructions, and architecture ove
 
 ## How I Approached the Challenge
 
-I used **spec-driven development**: before writing any code, I defined all TypeScript interfaces, Socket.io event contracts, and repository patterns. This approach ensures type safety end-to-end and makes the codebase self-documenting — the types ARE the documentation.
+I used **Spec-Driven Development (SDD)** with OpenSpec CLI: every component was implemented through a change lifecycle (`opsx-propose` → `opsx-apply` → `opsx-sync` → `opsx-archive`). Before writing any code, I defined all TypeScript interfaces, Socket.io event contracts, and repository patterns in spec artifacts. This approach ensures type safety end-to-end and produces self-documenting code — the specs accumulated in `openspec/specs/` are living documentation of every component.
 
 I prioritized:
 1. **Real-time collaboration** — the core ask. Socket.io with typed events, optimistic updates, and throttled drag events.
@@ -2841,28 +1426,34 @@ git commit -m "apply: challenge write-up — approach, decisions, tradeoffs, nex
 ## Self-Review Checklist
 
 **Spec coverage:**
-- Sec 1 (Overview + success criteria): Tasks 23 (docker-compose), 11 (tests), all apply tasks ✓
-- Sec 2 (Spec-driven methodology): Tasks 2-6 (propose phases), naming convention throughout ✓
-- Sec 3 (Architecture): Tasks 14 (bootstrap), 22-24 (Docker) ✓
-- Sec 4 (Redis scaling): Tasks 14 (Redis adapter), 24 (scaling compose) ✓
-- Sec 5 (Auth): Tasks 5, 9 (AuthService), 12 (middleware), 13 (routes), 18 (prompt), 21 (App) ✓
-- Sec 6 (Data model): Task 2 (domain models), 7 (Mongo repo) ✓
-- Sec 7 (Event contract): Task 3 (socket-events.ts) ✓
-- Sec 8 (Backend arch): Tasks 7-14 ✓
-- Sec 9 (Frontend arch): Tasks 15-21 ✓
-- Sec 10 (JSON import): Tasks 13 (board.routes), 20 (Board component import button), 25 (seed script), 26 (sample data) ✓
-- Sec 11 (Conflict resolution): LWW is implicit in the implementation (last write to MongoDB wins) ✓
-- Sec 12 (Testing): Task 11 ✓
-- Sec 13 (Infrastructure): Tasks 22-24 (Docker), 25 (auto-seed on startup) ✓
+- Sec 1 (Overview): Tasks 5 (docker-compose), changes 4 (services/tests) ✓
+- Sec 2 (SDD methodology): Task 2 (OpenSpec setup), all changes use opsx-propose/apply lifecycle ✓
+- Sec 3 (Architecture): Changes 6 (bootstrap), Tasks 4-6 (Docker) ✓
+- Sec 4 (Redis scaling): Change 6 (Redis adapter), Task 6 (scaling compose) ✓
+- Sec 5 (Auth): Change 4 (AuthService), Change 5 (transport), Change 10 (components auth gate) ✓
+- Sec 6 (Data model): Change 1 (domain models), Change 3 (repository) ✓
+- Sec 7 (Event contract): Change 2 (socket-events) ✓
+- Sec 8 (Backend arch): Changes 1-6 ✓
+- Sec 9 (Frontend arch): Changes 7-10 ✓
+- Sec 10 (JSON import): Change 5 (HTTP routes), Change 10 (import button), Task 7 (seed), Task 8 (sample data) ✓
+- Sec 11 (Conflict resolution): LWW implicit in implementation ✓
+- Sec 12 (Testing): Change 4 (NoteService unit tests with Vitest) ✓
+- Sec 13 (Infrastructure): Tasks 4-6 (Docker), Task 7 (auto-seed) ✓
 - Sec 14 (Tech stack): All covered ✓
-- Sec 15 (Scope): All in-scope items have tasks ✓
-- Sec 16 (Time budget): Plan follows the same phase ordering ✓
+- Sec 15 (Scope): All in-scope items covered ✓
+- Sec 16 (Time budget): Plan follows same phase ordering ✓
 
-**Placeholder scan:** No TBDs, TODOs, or "implement later" found. All steps have code. ✓
+**SDD artifacts:**
+- Each backend change (1-6) produces: proposal.md, design.md, tasks.md, specs/ in `server/openspec/changes/`
+- Each frontend change (7-10) produces same in `client/openspec/changes/`
+- After each change: opsx-sync moves delta specs to main `openspec/specs/`
+- After sync: opsx-archive moves completed change to `archive/` with date prefix
+- Result: full spec documentation of every component, accumulated in both services
+
+**Placeholder scan:** No TBDs, TODOs, or "implement later" found. ✓
 
 **Type consistency:**
-- `StickyNote` interface: same fields in server `note.model.ts` and client `note.model.ts` ✓
-- `ServerToClientEvents` / `ClientToServerEvents`: same in server `socket-events.ts` and client `note.model.ts` ✓
+- `StickyNote` interface: same fields in server and client `note.model.ts` ✓
+- `ServerToClientEvents` / `ClientToServerEvents`: same in both services ✓
 - `INoteRepository` methods match what `NoteService` calls ✓
 - `NoteService` method signatures match what transport handlers call ✓
-- `useBoard` hook functions match what `Board` component expects as props ✓

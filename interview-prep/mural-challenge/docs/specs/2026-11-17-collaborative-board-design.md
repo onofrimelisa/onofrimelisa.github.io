@@ -23,75 +23,113 @@ A full-stack prototype of a collaborative board where multiple users can create,
 
 ---
 
-## 2. Development Methodology: Spec-Driven Design
+## 2. Development Methodology: Spec-Driven Development (SDD)
 
-This project follows a **spec-driven development** workflow optimized for AI-assisted implementation. Instead of writing code directly, we define contracts first and implement against them. Every component goes through a structured lifecycle.
+This project follows **Spec-Driven Development** using **OpenSpec CLI** (`openspec` v1.12.0+). Instead of writing code directly, every component is implemented through a change lifecycle that produces structured artifacts (proposal, design, tasks, specs). The human makes all architectural decisions; the AI implements within the spec's constraints.
 
 ### The Workflow
 
 ```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│  PROPOSE  │────►│  REVIEW   │────►│  APPLY    │────►│  VERIFY   │
-│           │     │           │     │           │     │           │
-│ Define the│     │ Validate  │     │ Implement │     │ Confirm   │
-│ contract  │     │ correctness│    │ against   │     │ output    │
-│ (types,   │     │ and       │     │ the spec  │     │ matches   │
-│ interfaces│     │ completeness│   │           │     │ the spec  │
-│ schemas)  │     │           │     │           │     │           │
-└──────────┘     └──────────┘     └──────────┘     └──────────┘
-                       │                                  │
-                       ▼                                  ▼
-                  Revise if                          Fix if
-                  incomplete                        divergent
+opsx-propose <name>     → Creates proposal.md, design.md, tasks.md, specs/
+        │
+        ▼
+  Human reviews artifacts
+        │
+        ▼
+opsx-apply <name>       → Implements tasks from the change
+        │
+        ▼
+opsx-sync <name>        → Syncs delta specs to main specs
+        │
+        ▼
+opsx-archive <name>     → Moves completed change to archive/
+```
+
+### OpenSpec Commands
+
+| Command | What it does | When to use |
+|---------|-------------|-------------|
+| `/project:opsx-propose <name>` | Creates a new change with all planning artifacts (proposal, design, tasks) | Before implementing any new feature or component |
+| `/project:opsx-apply <name>` | Implements tasks from a change, marking them complete | When artifacts are ready and it's time to code |
+| `/project:opsx-sync <name>` | Syncs delta specs from a change into the main specs | After implementation, to keep main specs current |
+| `/project:opsx-archive <name>` | Archives a completed change (moves to `archive/` with date prefix) | When a change is fully implemented and synced |
+| `/project:opsx-explore` | Think mode — investigate without implementing | When exploring a problem |
+| `/project:opsx-update <name>` | Revise existing planning artifacts | When requirements change mid-implementation |
+
+### Artifact Flow Within a Change
+
+```
+openspec new change "feature-name"
+  └── proposal.md    (what & why)
+       └── design.md     (how — architecture, interfaces, data flow)
+            └── tasks.md      (implementation steps, checkboxes)
+                 └── specs/**  (delta specs for capabilities)
+```
+
+### Per-Service Setup
+
+Each service (server/ and client/) has its own OpenSpec configuration:
+
+```
+server/ (or client/)
+├── openspec/
+│   ├── config.yaml          # Schema, project context, per-artifact rules
+│   ├── changes/             # Active changes being worked on
+│   │   └── <change-name>/
+│   │       ├── proposal.md
+│   │       ├── design.md
+│   │       ├── tasks.md
+│   │       └── specs/       # Delta specs
+│   └── specs/               # Main specs (accumulated from synced changes)
+├── .claude/
+│   └── commands/            # OpenSpec slash commands (opsx-propose, opsx-apply, etc.)
+└── CLAUDE.md                # AI rules for the service
 ```
 
 ### Phase Definitions
 
-**`propose`** — Define the contract before any implementation:
-- TypeScript interfaces and types (domain models, event payloads, repository interfaces)
-- Socket.io event schemas (client→server and server→client)
-- HTTP endpoint contracts (request/response shapes)
-- File structure and module boundaries
+**`opsx-propose`** — Define the contract before any implementation:
+- Creates proposal.md (what & why), design.md (how), tasks.md (steps), and delta specs
+- TypeScript interfaces and types are defined in the design artifact
+- The spec IS the source of truth. Code is an implementation of the spec.
 
-The spec IS the source of truth. Code is an implementation of the spec, not the other way around.
+**`opsx-apply`** — Implement against the reviewed contract:
+- Works through tasks from the change's tasks.md
+- Marks tasks complete as they're done
+- If implementation reveals a design issue, pause and use `opsx-update`
 
-**`review`** — Validate the proposed contract:
-- Are the types complete? No `any`, no missing fields
-- Are the interfaces consistent across layers? (e.g., the event payload types used by the transport layer match the service layer's input/output types)
-- Does the contract cover all the use cases in the spec?
-- Are there ambiguities that could lead to divergent implementations?
+**`opsx-sync`** — Merge delta specs into main specs:
+- After implementation, syncs change-specific specs into `openspec/specs/`
+- Result: accumulated living documentation of every component
 
-**`apply`** — Implement against the reviewed contract:
-- Write code that satisfies the interfaces defined in `propose`
-- The types are already defined — implementation fills in the behavior
-- If the implementation reveals a gap in the spec, go back to `propose` instead of patching ad-hoc
-
-**`verify`** — Confirm the implementation matches the spec:
-- Run unit tests (which test against the same interfaces)
-- Type-check passes (TypeScript compiler enforces the contracts)
-- Manual smoke test: does the feature work as described?
-- If verification fails, determine whether the bug is in the implementation (`apply` again) or in the spec (`propose` again)
+**`opsx-archive`** — Close the change:
+- Moves completed change to `archive/` with date prefix
+- Change history preserved for reference
 
 ### How This Maps to Our Implementation
 
-| Implementation Step | propose | review | apply | verify |
-|-------------------|---------|--------|-------|--------|
-| Domain models | Define `StickyNote`, `NoteColor`, input/output types | Validate completeness, check all fields | Create `note.model.ts` files (server + client) | TypeScript compiles, types are reusable |
-| Event contract | Define `ServerToClientEvents`, `ClientToServerEvents` | Validate against use cases (create, edit, move, join) | Create `socket-events.ts`, wire into Socket.io server generics | Events are typed end-to-end |
-| Repository layer | Define `INoteRepository` interface | Validate CRUD coverage, check return types | Implement `MongoNoteRepository` + `InMemoryNoteRepository` (for tests) | Unit tests pass against interface |
-| Service layer | Define `NoteService` public API (methods, params, returns) | Validate it covers all use cases | Implement business logic | Unit tests with mocked repository |
-| Transport layer | Define handler signatures (what each socket event handler does) | Validate handlers map 1:1 to event contract | Implement handlers calling services | Smoke test: events flow correctly |
-| Auth | Define `AuthService` interface (login, verify) | Validate JWT flow completeness | Implement JWT generation + Socket.io middleware | Login → token → socket connect works |
-| Frontend hooks | Define `useSocket` and `useBoard` return types | Validate they expose all needed operations | Implement hooks | UI renders and syncs |
-| Infrastructure | Define Docker Compose services and env vars | Validate connectivity (who talks to whom) | Write docker-compose files, Dockerfiles, nginx.conf | `docker-compose up` runs the full stack |
+| OpenSpec Change | Service | What it produces |
+|----------------|---------|-----------------|
+| `domain-models` | server | `StickyNote`, `NoteColor`, input/output types in `note.model.ts` |
+| `socket-events` | server | `ServerToClientEvents`, `ClientToServerEvents` in `socket-events.ts` |
+| `repository-interface` | server | `INoteRepository` + `MongoNoteRepository` + `InMemoryNoteRepository` |
+| `services` | server | `NoteService`, `AuthService` + unit tests |
+| `transport-layer` | server | Socket.io handlers + Express routes |
+| `server-bootstrap` | server | Composition root (`index.ts`) + Redis config |
+| `client-models` | client | Client-side domain types (mirror of server) |
+| `api-service` | client | HTTP API service (login, import) |
+| `hooks` | client | `useSocket`, `useBoard` React hooks |
+| `components` | client | `UsernamePrompt`, `StickyNote`, `Board`, `UserList`, `App` |
+
+Each change produces proposal.md → design.md → tasks.md → specs/, synced to main specs after implementation.
 
 ### Why This Approach
 
-1. **Contracts catch bugs before code exists** — A type mismatch between the event contract and the service layer is caught at `review`, not at runtime
-2. **AI implements more accurately against specs** — Giving the AI a clear interface to implement against produces better code than giving it a vague description
-3. **The spec is documentation** — The types and interfaces ARE the living documentation. No separate docs to maintain
-4. **Testability is built-in** — Interfaces defined at `propose` become the test contracts. The mock repository implements the same interface as the real one
-5. **Iteration is cheaper** — Changing a type at `propose` is a one-line change. Changing it after `apply` means refactoring implementation code
+1. **Structured AI workflow** — OpenSpec gives the AI clear boundaries: what to propose, what to implement, what to sync. No ad-hoc prompting.
+2. **Living documentation** — The accumulated specs in `openspec/specs/` document every component. The types and interfaces ARE the documentation.
+3. **Contracts catch bugs before code exists** — A type mismatch between the event contract and the service layer is caught at propose, not at runtime.
+4. **Testability is built-in** — Interfaces defined at propose become the test contracts. The mock repository implements the same interface as the real one.
+5. **Change history** — Every archived change preserves the decision trail: what was proposed, what was designed, what was implemented.
 
 ### Spec Artifacts
 
