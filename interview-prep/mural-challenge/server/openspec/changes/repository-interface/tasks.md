@@ -1,0 +1,4 @@
+- [x] Create src/repositories/note.repository.ts with INoteRepository and MongoNoteRepository
+- [x] Create tests/helpers/mock.repository.ts with InMemoryNoteRepository
+- [x] Create src/config/database.ts with connectToMongo helper
+- [x] Verify TypeScript compiles
