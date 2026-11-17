@@ -1,0 +1,4 @@
+- [x] Create src/services/auth.service.ts
+- [x] Create src/services/note.service.ts
+- [x] Create tests/services/note.service.test.ts
+- [x] Run tests and verify all pass
