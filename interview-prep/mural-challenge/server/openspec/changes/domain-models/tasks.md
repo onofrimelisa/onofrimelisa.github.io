@@ -1,0 +1,2 @@
+- [x] Create src/models/note.model.ts with all types and constants
+- [x] Verify TypeScript compiles
