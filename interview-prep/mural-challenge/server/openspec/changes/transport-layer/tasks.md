@@ -1,0 +1,5 @@
+- [x] Create src/transport/socket/board.handlers.ts
+- [x] Create src/transport/socket/note.handlers.ts
+- [x] Create src/transport/http/auth.routes.ts
+- [x] Create src/transport/http/board.routes.ts
+- [x] Verify TypeScript compiles
