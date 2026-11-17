@@ -1,0 +1,3 @@
+- [x] Create src/config/redis.ts with pub/sub connection and adapter
+- [x] Create src/index.ts composition root
+- [x] Verify TypeScript compiles
