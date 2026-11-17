@@ -1,0 +1,2 @@
+- [x] Create src/models/socket-events.ts with typed event interfaces
+- [x] Verify TypeScript compiles
