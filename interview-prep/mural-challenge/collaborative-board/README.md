@@ -2,6 +2,17 @@
 
 A full-stack prototype of a collaborative whiteboard where multiple users can create, edit, and move sticky notes in real time.
 
+## Demo
+
+<div>
+    <a href="https://www.loom.com/share/a85b4e825a7d4d859f7727ac236a3802">
+      <p>Collaborative Board — 44s demo</p>
+    </a>
+    <a href="https://www.loom.com/share/a85b4e825a7d4d859f7727ac236a3802">
+      <img style="max-width:600px;" src="https://cdn.loom.com/sessions/thumbnails/a85b4e825a7d4d859f7727ac236a3802-b98de9b22dee2f28-full-play.gif">
+    </a>
+</div>
+
 ## Quick Start
 
 ```bash
