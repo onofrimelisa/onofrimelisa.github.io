@@ -364,7 +364,9 @@ This is the central contract. Defined first, drives all implementation.
 
 ### Design Decisions
 
-- **Separate `note:update` and `note:move`**: Move events are frequent (drag) and lightweight (just coordinates). Text updates are infrequent and heavier. Different throttling strategies.
+- **Separate `note:update` and `note:move`**: Move events are frequent (drag) and lightweight (just coordinates, 3 fields). Text updates are infrequent and heavier (up to 500 chars). Separating them avoids sending text on every drag frame and allows different rate-limiting strategies per event type.
+- **Debounced move emit (50ms), not per-pixel**: During drag, the local UI updates on every mousemove (~60fps) for instant feedback, but the socket emit is debounced at 50ms — only fires when mouse movement pauses for 50ms+. This reduces network messages from ~60/sec to ~1-3/sec during a smooth drag. CSS transitions (150ms ease) on the receiving end smooth the position jumps between emits. A proper throttle (emit at regular 50ms intervals) would give smoother remote tracking; debounce is acceptable for a prototype since natural hand jitter creates enough micro-pauses.
+- **Three-layer update model**: (1) Local state updates at frame rate, (2) network emit is debounced, (3) server persists immediately on receive. Production evolution: add write coalescing at layer 3 — buffer in Redis, flush to MongoDB every 500ms-1s — to reduce DB writes from ~20/sec to ~1-2/sec per active drag.
 - **Acknowledgements on `note:create` only**: Create needs server-generated ID back. Move and update are fire-and-forget with optimistic UI.
 - **Username from JWT, not payload**: The server extracts the author from the validated token, not from client-sent data. Prevents spoofing.
 

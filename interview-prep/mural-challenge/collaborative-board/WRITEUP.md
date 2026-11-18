@@ -28,8 +28,9 @@ I prioritized:
 ## UX Decisions
 
 - **Optimistic updates**: UI responds instantly to user actions; server sync happens asynchronously
-- **Throttled drag events**: Mouse move events emit at ~50ms intervals, not per pixel
-- **CSS transitions**: Notes from other users animate smoothly to new positions
+- **Three-layer drag model**: Local state updates at ~60fps (instant cursor tracking), socket emit is debounced at 50ms (reduces network to ~1-3 messages/sec during drag), server persists on receive. Same pattern used by Miro and Figma — instant local, rate-limited network, batched persistence.
+- **CSS transitions on remote notes**: When another user moves a note, `transition: left 0.15s ease, top 0.15s ease` interpolates between received positions. When you drag, transitions are disabled so the note follows your cursor exactly.
+- **Debounce (not throttle) for prototype**: A debounce (trailing edge) means events only emit when movement pauses. A throttle would emit at regular intervals for smoother remote tracking. Debounce is acceptable here because natural hand jitter creates micro-pauses, and CSS transitions smooth the gaps. Production evolution: proper throttle + write coalescing on the server.
 - **Inline editing**: Double-click to edit, Enter to save — familiar pattern
 - **Connected users**: Always visible, so you know the board is shared
 
@@ -48,6 +49,8 @@ The design decisions, architecture, and trade-off analysis are my own. AI accele
 | Decision | Tradeoff |
 |----------|----------|
 | WebSocket-only transport | No fallback for restrictive proxies, but eliminates sticky session complexity |
+| Debounce (not throttle) on drag emit | Fewer network messages but remote users see position jumps instead of smooth tracking. CSS transitions compensate. Production: proper throttle (leading + trailing edge) |
+| No server-side write coalescing | Every move event triggers a MongoDB write. Simple but doesn't scale. Production: buffer in Redis, flush to DB every 500ms-1s |
 | Last-write-wins | Simple but can lose edits in rare concurrent scenarios. Production: OT/CRDTs |
 | Single default board | Simplifies scope. Data model already supports multiple boards |
 | No delete notes | Prioritized create/edit/move as higher-signal features |
