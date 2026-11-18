@@ -20,6 +20,12 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SECRET: dev-secret-change-in-production
       PORT: 3000
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'health'})}).then(r=>{if(!r.ok)throw 1}).catch(()=>{process.exit(1)})"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   mongo:
     image: mongo:7
@@ -36,7 +42,8 @@ services:
   seed:
     image: curlimages/curl:latest
     depends_on:
-      - server
+      server:
+        condition: service_healthy
     volumes:
       - ./sample-data:/data:ro
       - ./scripts:/scripts:ro
