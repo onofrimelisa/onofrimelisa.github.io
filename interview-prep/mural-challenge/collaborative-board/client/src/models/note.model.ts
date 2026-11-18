@@ -24,7 +24,7 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  'board:join': (ack: (notes: StickyNote[]) => void) => void;
+  'board:join': (ack: (data: { notes: StickyNote[]; users: string[] }) => void) => void;
   'note:create': (
     data: { text: string; x: number; y: number; color: string },
     ack: (note: StickyNote) => void,

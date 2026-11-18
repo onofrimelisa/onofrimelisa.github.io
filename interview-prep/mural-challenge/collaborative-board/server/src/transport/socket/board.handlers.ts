@@ -35,7 +35,7 @@ export function registerBoardHandlers(io: AppServer, socket: AppSocket, noteServ
     addUser(username);
 
     const notes = await noteService.getBoardNotes(DEFAULT_BOARD_ID);
-    ack(notes);
+    ack({ notes, users: getBoardUsers() });
 
     socket.to(BOARD_ROOM).emit('board:user-joined', {
       username,

@@ -52,6 +52,9 @@ The design decisions, architecture, and trade-off analysis are my own. AI accele
 | Debounce (not throttle) on drag emit | Fewer network messages but remote users see position jumps instead of smooth tracking. CSS transitions compensate. Production: proper throttle (leading + trailing edge) |
 | No server-side write coalescing | Every move event triggers a MongoDB write. Simple but doesn't scale. Production: buffer in Redis, flush to DB every 500ms-1s |
 | Last-write-wins | Simple but can lose edits in rare concurrent scenarios. Production: OT/CRDTs |
+| Partial updates (`$set` on disjoint fields) | Move and text edit on the same note don't conflict — `$set: {x,y}` and `$set: {text}` touch different fields. Reduces the LWW conflict surface to same-field-same-note, which is rare in practice |
+| No optimistic concurrency control (no version field) | Simpler writes, no retry loops. Version conflicts during drag (20 events/sec) would stutter the UI. Acceptable because position data is continuous (only final value matters) and sticky note text is short. Production: version field for text edits, CRDTs for position |
+| MongoDB `w:1` write concern (single node) | Low latency (~1-5ms) but single point of failure. Acceptable for prototype. Production: replica set with `w:'majority'` for note creation, `w:1` for high-frequency position updates |
 | Single default board | Simplifies scope. Data model already supports multiple boards |
 | No delete notes | Prioritized create/edit/move as higher-signal features |
 | In-memory user tracking | Works per-instance. With Redis adapter, `fetchSockets()` could provide cross-instance count |

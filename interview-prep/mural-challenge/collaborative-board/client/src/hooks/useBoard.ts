@@ -11,8 +11,9 @@ export function useBoard(socket: AppSocket | null) {
   useEffect(() => {
     if (!socket) return;
 
-    socket.emit('board:join', (initialNotes) => {
-      setNotes(initialNotes);
+    socket.emit('board:join', (data) => {
+      setNotes(data.notes);
+      setUsers(data.users);
       setJoined(true);
     });
 

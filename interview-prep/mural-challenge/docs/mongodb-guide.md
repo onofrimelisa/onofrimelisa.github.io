@@ -275,19 +275,237 @@ We don't need this for the challenge, but it's useful to know for the systems de
 
 ---
 
-## 7. Concurrency and Atomicity
+## 7. Concurrency, Atomicity, and Consistency
 
 ### Fundamental Rule
 
 > Operations on **a single document** are atomic in MongoDB. You don't need transactions to update a document.
 
-This means that `updateOne` on a note is atomic — there are no race conditions between two updates to the same field of the same document. The last write wins (last-write-wins).
+MongoDB uses **WiredTiger** as its storage engine (default since 3.2). WiredTiger implements **document-level locking** — not collection-level, not database-level. This means two concurrent writes to _different documents_ in the same collection proceed in parallel with zero contention.
 
-### For Our Use Case
+For a _single document_, WiredTiger serializes concurrent writes using **optimistic concurrency control internally**: it detects conflicts at commit time and retries automatically. From the application's perspective, `findOneAndUpdate` is always atomic.
 
-Two users editing **the same note** at the same time: last-write-wins. The last position/text that arrives at the server is what persists. For a prototype this is acceptable.
+### Race Condition Analysis for Our Solution
 
-Two users editing **different notes**: no conflict — they are independent documents.
+Let's trace exactly what happens when two users interact with the same note simultaneously.
+
+#### Scenario 1: Two users move the same note at the same time
+
+```
+User A drags note to (100, 200)         User B drags note to (300, 400)
+        |                                         |
+        v                                         v
+Server receives note:move {x:100,y:200}  Server receives note:move {x:300,y:400}
+        |                                         |
+        v                                         v
+findOneAndUpdate({ id }, { $set: {x:100, y:200} })
+                                         findOneAndUpdate({ id }, { $set: {x:300, y:400} })
+```
+
+**What MongoDB does internally:**
+1. Both operations target the same document
+2. WiredTiger acquires a write lock on the document for the first operation
+3. The second operation waits (microseconds) for the lock to release
+4. Both succeed — the second one overwrites the first's values
+5. Final state: `{x:300, y:400}` (last-write-wins)
+
+**What the users see:**
+- User A sees `(100,200)` from their optimistic update, then receives User B's `note:moved` broadcast and snaps to `(300,400)`
+- User B sees `(300,400)` immediately
+- Both converge to the same state, but User A's move is silently lost
+
+#### Scenario 2: One user moves, another edits text (same note)
+
+```
+User A: note:move {id, x:100, y:200}    User B: note:update {id, text:"new text"}
+        |                                         |
+        v                                         v
+$set: { x:100, y:200, updatedAt }       $set: { text:"new text", updatedAt }
+```
+
+**No conflict.** MongoDB's `$set` operator only touches the specified fields. These two operations write to disjoint fields (`x,y` vs `text`), so both succeed without overwriting each other. This is a key advantage of **partial updates** — they shrink the conflict surface.
+
+**Caveat:** `updatedAt` is written by both. The last one wins for that field, but `updatedAt` is informational, not a correctness concern.
+
+#### Scenario 3: Two users edit the same note's text
+
+```
+User A: note:update {id, text:"foo"}     User B: note:update {id, text:"bar"}
+        |                                         |
+        v                                         v
+$set: { text:"foo", updatedAt }          $set: { text:"bar", updatedAt }
+```
+
+**Last-write-wins.** If B's write commits after A's, the note says "bar" and A's edit is silently lost. Neither user is notified of the conflict.
+
+### Why Our Current Approach Works (and Its Limits)
+
+Our repository uses `findOneAndUpdate` with `$set` for all mutations:
+
+```typescript
+// note.repository.ts — position update
+async updatePosition(id: string, x: number, y: number) {
+  return this.collection.findOneAndUpdate(
+    { id },
+    { $set: { x, y, updatedAt: new Date() } },
+    { returnDocument: 'after' },
+  );
+}
+```
+
+**What this gives us:**
+- Atomicity: each individual write is atomic (no partial writes)
+- Isolation: `$set` on disjoint fields don't interfere
+- Durability: written to the journal before ack (default `w:1`)
+- Last-write-wins: simple, no coordination overhead
+
+**What this does NOT give us:**
+- No conflict detection (we can't tell if we're overwriting another user's change)
+- No merge (concurrent text edits don't combine)
+- No ordering (no guarantee that server receives events in the order they were generated)
+
+### Alternatives: How We Could Handle Concurrency Differently
+
+#### Option 1: Optimistic Concurrency Control with Version Field
+
+Add a `version` field to each note. Reject writes that target a stale version:
+
+```typescript
+// Add version to the model
+interface StickyNote {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  version: number;  // incremented on each write
+  // ...
+}
+
+// Repository: conditional update
+async updatePosition(id: string, x: number, y: number, expectedVersion: number) {
+  const result = await this.collection.findOneAndUpdate(
+    { id, version: expectedVersion },     // only if version matches
+    { $set: { x, y, updatedAt: new Date() }, $inc: { version: 1 } },
+    { returnDocument: 'after' },
+  );
+  if (!result) {
+    throw new StaleVersionError(id, expectedVersion);
+  }
+  return result;
+}
+```
+
+**How it works:** Client sends current version with each edit. If another write incremented the version, the filter `{ id, version: expectedVersion }` matches nothing — write rejected. The client must refetch and retry.
+
+**Tradeoff:**
+- Pro: Detects conflicts instead of silently overwriting
+- Con: Adds round-trips (refetch + retry). For drag operations at 20 events/sec, version conflicts would fire constantly, making the UI stutter. The retry loop would be worse than LWW for the user.
+
+**When to use it:** Text editing (low frequency, high value per edit). NOT for position updates during drag.
+
+#### Option 2: CRDTs (Conflict-free Replicated Data Types)
+
+Use a LWW-Register with Lamport timestamps instead of raw `$set`:
+
+```typescript
+interface PositionCRDT {
+  x: number;
+  y: number;
+  timestamp: number;    // Lamport clock
+  nodeId: string;       // tiebreaker for equal timestamps
+}
+
+// MongoDB write: only update if incoming timestamp is higher
+async updatePosition(id: string, position: PositionCRDT) {
+  return this.collection.findOneAndUpdate(
+    { id, $or: [
+      { 'position.timestamp': { $lt: position.timestamp } },
+      { 'position.timestamp': position.timestamp,
+        'position.nodeId': { $lt: position.nodeId } }
+    ]},
+    { $set: { position } },
+    { returnDocument: 'after' },
+  );
+}
+```
+
+**Tradeoff:**
+- Pro: Deterministic resolution — all nodes converge to the same state regardless of message ordering
+- Pro: No coordination needed (true distributed merge)
+- Con: More complex data model and write logic
+- Con: Requires Lamport clocks or vector clocks in every client
+
+**When to use it:** When you need consistency across multiple server instances without a single coordinator. Good for position data.
+
+#### Option 3: Operational Transformation (OT)
+
+For text editing, transform concurrent operations so both apply cleanly:
+
+```
+User A: insert "X" at pos 3    User B: insert "Y" at pos 1
+
+Server receives A first:        "helloX" (at pos 3)
+Then transforms B against A:    insert "Y" at pos 1 (unchanged, pos < 3)
+Result:                         "hYelloX"
+
+If server received B first:     "hYello" (at pos 1)
+Then transforms A against B:    insert "X" at pos 4 (shifted right by 1)
+Result:                         "hYelXlo"  — wait, different!
+```
+
+OT requires careful mathematical transformation rules and a central server to establish a canonical operation order.
+
+**Tradeoff:**
+- Pro: No data loss — concurrent edits merge intelligently
+- Pro: Industry proven (Google Docs)
+- Con: Complex to implement correctly (operation transformation is subtle)
+- Con: Requires a central ordering server
+- Con: Overkill for short sticky note text (280 chars max)
+
+#### What We Chose and Why
+
+| Strategy | Position (drag) | Text (edit) | Complexity | Our Choice |
+|----------|----------------|-------------|------------|------------|
+| **LWW (current)** | Good enough — drag is continuous, only final position matters | Acceptable — sticky notes are short, concurrent edits rare | Minimal | Yes |
+| **Version field (OCC)** | Bad — constant version conflicts during drag | Good for forms, bad for real-time | Low | No |
+| **CRDTs** | Best — deterministic merge without coordination | Overkill for short text | Medium | Production evolution |
+| **OT** | N/A (designed for sequential data) | Best for long text | High | Not needed for sticky notes |
+
+**Our reasoning:** For a collaborative board with short sticky notes, LWW with partial updates is the right tradeoff. The conflict surface is small (independent notes + disjoint field updates), and the worst case (two users edit the same note's text simultaneously) is rare and recoverable (the board state is always visible). Production evolution: CRDTs for positions, OT/Yjs for text if notes grow into rich-text documents.
+
+### MongoDB Consistency in a Distributed Setup
+
+#### Read Concern and Write Concern
+
+MongoDB lets you tune consistency per operation:
+
+```typescript
+// Our current default: w:1 (acknowledged by primary)
+await collection.findOneAndUpdate(filter, update);
+
+// Stronger: majority write concern (acknowledged by majority of replica set)
+await collection.findOneAndUpdate(filter, update, { writeConcern: { w: 'majority' } });
+
+// Strongest read: read your own writes
+await collection.find(filter).readConcern('majority');
+```
+
+| Write Concern | Meaning | Latency | Durability |
+|--------------|---------|---------|------------|
+| `w: 1` (our default) | Ack after primary writes to memory | ~1-5ms | Durable after journal flush (default 100ms) |
+| `w: 'majority'` | Ack after majority of replica set confirms | ~5-20ms | Survives primary failure |
+| `w: 0` (fire-and-forget) | No ack | ~0ms | No guarantee |
+
+**We use `w:1` (default)** because we're running a single MongoDB node. In production with a replica set, `w: 'majority'` would be appropriate for critical writes (note creation) while `w:1` stays fine for position updates (high frequency, low value per individual write).
+
+#### Single Node vs Replica Set
+
+| Aspect | Single Node (current) | Replica Set (production) |
+|--------|----------------------|-------------------------|
+| Consistency | Strong (single source of truth) | Tunable (read concern) |
+| Availability | SPOF — if Mongo dies, writes fail | Primary election, automatic failover |
+| Read scaling | None | Read from secondaries |
+| CAP position | CP (consistent but single point of failure) | CP with tunable read preferences |
 
 ### Multi-Document Transactions
 
@@ -307,7 +525,7 @@ try {
 }
 ```
 
-We don't need this for the challenge, but it's good to know it exists for the follow-up.
+We don't need this for the challenge (all operations are single-document), but it's relevant if the board evolves to support "delete board with all its notes" as an atomic operation.
 
 ---
 

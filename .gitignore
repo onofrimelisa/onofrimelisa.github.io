@@ -1,3 +1,13 @@
 .DS_Store
 node_modules/
 portfolio-site/.astro/
+
+# Mural challenge — collaborative-board services
+dist/
+dist-ssr/
+*.log
+npm-debug.log*
+*.local
+.env
+.env.*
+*.tsbuildinfo
