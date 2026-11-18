@@ -57,7 +57,7 @@ The design decisions, architecture, and trade-off analysis are my own. AI accele
 | MongoDB `w:1` write concern (single node) | Low latency (~1-5ms) but single point of failure. Acceptable for prototype. Production: replica set with `w:'majority'` for note creation, `w:1` for high-frequency position updates |
 | Single default board | Simplifies scope. Data model already supports multiple boards |
 | No delete notes | Prioritized create/edit/move as higher-signal features |
-| In-memory user tracking | Works per-instance. With Redis adapter, `fetchSockets()` could provide cross-instance count |
+| Cross-instance user tracking via `fetchSockets()` | Uses Redis adapter to query all instances for connected sockets. Correct user list across all instances, but adds a Redis round-trip on join/leave (~1-5ms). Acceptable since join/leave is low frequency |
 
 ## Next Steps (With More Time)
 

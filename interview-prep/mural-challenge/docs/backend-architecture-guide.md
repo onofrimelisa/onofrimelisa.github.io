@@ -20,7 +20,41 @@ The main patterns you'll encounter:
 
 ---
 
-## 2. Hexagonal Architecture (Ports & Adapters)
+## 2. Why Node.js
+
+### The Event Loop and Real-Time
+
+Node.js runs on a **single-threaded event loop** — it doesn't create a thread per connection like traditional servers (Java/Spring, Ruby/Rails). Instead, it handles I/O asynchronously: when a WebSocket message arrives, the callback runs on the event loop; when it needs to write to MongoDB, it fires the write and moves on to the next event without blocking.
+
+This makes Node.js a natural fit for **high-concurrency, I/O-bound workloads** — exactly what a real-time collaborative board is. Each connected user holds an open WebSocket; in a thread-per-connection model, 10K users = 10K threads (memory-heavy). In Node.js, 10K users = 10K sockets on one event loop (memory-light).
+
+### Node.js vs Alternatives for This Challenge
+
+| Aspect | Node.js | Go | Java/Spring | Python/FastAPI |
+|--------|---------|-----|-------------|---------------|
+| **WebSocket ecosystem** | Socket.io (mature, rooms, adapters, Redis scaling) | gorilla/websocket (lower-level, no rooms) | Spring WebSocket (verbose, enterprise-oriented) | python-socketio (Socket.io port, smaller ecosystem) |
+| **Concurrency model** | Event loop — excellent for I/O-bound | Goroutines — excellent for both I/O and CPU | Thread pool — heavier memory per connection | asyncio — good but GIL limits CPU |
+| **Prototype speed** | Very fast (npm ecosystem, minimal boilerplate) | Medium (more verbose, explicit error handling) | Slow (annotations, config, boilerplate) | Fast (minimal boilerplate) |
+| **TypeScript** | Native (shared types client ↔ server) | No (different type system) | No (Java types don't reach the frontend) | No (Pydantic types stay server-side) |
+| **Mural stack alignment** | Yes (Node.js in their stack) | No | No | No |
+
+### Why We Chose Node.js
+
+1. **Socket.io is the best real-time abstraction available** — rooms, broadcasting, typed events, Redis adapter, reconnection. No other ecosystem has an equivalent with this maturity.
+2. **Shared TypeScript types** — the same `StickyNote` interface defines the domain on both client and server. No code generation, no schema translation, no drift.
+3. **I/O-bound workload** — our server receives WebSocket events, writes to MongoDB, and broadcasts to other sockets. Zero CPU-intensive work. This is Node's sweet spot.
+4. **Mural's stack** — the JD mentions Node.js. Using it demonstrates alignment.
+5. **Development speed** — for a 4-hour prototype, the npm ecosystem and minimal boilerplate let us focus on the problem, not the plumbing.
+
+### When Node.js Would Be the Wrong Choice
+
+- **CPU-heavy processing** (image manipulation, ML inference, heavy computation) — the single-threaded event loop blocks. Use Go, Rust, or offload to worker threads.
+- **Strict latency requirements at massive scale** (millions of connections, microsecond latency) — Go's goroutines or Rust's async runtime outperform Node at the extremes.
+- **Large enterprise teams** that benefit from Java/Spring's opinionated structure and compile-time guarantees beyond what TypeScript offers.
+
+---
+
+## 3. Hexagonal Architecture (Ports & Adapters)
 
 ### The Core Idea
 
@@ -141,7 +175,7 @@ Dependencies always point **inward** — toward the domain:
 
 ---
 
-## 3. Layered Architecture (The Pragmatic Middle Ground)
+## 4. Layered Architecture (The Pragmatic Middle Ground)
 
 The most common pattern in production Node.js backends today. Three layers with clear responsibilities:
 
@@ -210,7 +244,7 @@ server/
 
 ---
 
-## 4. Recommendation for the Challenge
+## 5. Recommendation for the Challenge
 
 ### Why Not Full Hexagonal
 
@@ -290,7 +324,7 @@ function registerNoteHandlers(io: Server, socket: Socket, noteService: NoteServi
 
 ---
 
-## 5. TypeScript Patterns That Matter
+## 6. TypeScript Patterns That Matter
 
 ### Constructor Injection (Simple DI)
 
@@ -379,7 +413,7 @@ This makes error handling explicit in the type system — callers must handle bo
 
 ---
 
-## 6. File Structure Summary
+## 7. File Structure Summary
 
 ```
 server/
@@ -412,7 +446,7 @@ server/
 
 ---
 
-## 7. Summary
+## 8. Summary
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|

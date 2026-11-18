@@ -2,6 +2,7 @@
 # Auto-seed: waits for server, logs in, imports sample notes
 
 API_URL="${API_URL:-http://server:3000}"
+BOARD_ID="${BOARD_ID:-default}"
 MAX_RETRIES=30
 RETRY_INTERVAL=2
 
@@ -36,23 +37,10 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
-echo "[seed] Got token. Checking if board already has notes..."
-
-# Check if board already has notes (idempotency: skip import if data exists)
-BOARD_NOTES=$(curl -s "$API_URL/api/boards/default/notes" \
-  -H "Authorization: Bearer $TOKEN")
-
-NOTE_COUNT=$(echo "$BOARD_NOTES" | sed -n 's/.*"count":\([0-9]*\).*/\1/p')
-
-if [ -n "$NOTE_COUNT" ] && [ "$NOTE_COUNT" -gt 0 ] 2>/dev/null; then
-  echo "[seed] Board already has $NOTE_COUNT notes. Skipping import."
-  exit 0
-fi
-
-echo "[seed] Board is empty. Importing notes..."
+echo "[seed] Got token. Importing notes to board '$BOARD_ID'..."
 
 # Import sample notes
-IMPORT_RESPONSE=$(curl -s -w "\n%{http_code}" "$API_URL/api/boards/default/import" \
+IMPORT_RESPONSE=$(curl -s -w "\n%{http_code}" "$API_URL/api/boards/$BOARD_ID/import" \
   -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@/data/notes.json")

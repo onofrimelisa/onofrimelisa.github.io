@@ -13,10 +13,10 @@ export async function login(username: string): Promise<{ token: string; username
   return res.json();
 }
 
-export async function importNotes(file: File, token: string): Promise<{ imported: number }> {
+export async function importNotes(file: File, token: string, boardId = 'default'): Promise<{ imported: number }> {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch(`${API_URL}/api/boards/default/import`, {
+  const res = await fetch(`${API_URL}/api/boards/${boardId}/import`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: formData,

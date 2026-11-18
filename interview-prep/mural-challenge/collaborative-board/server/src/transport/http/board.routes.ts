@@ -3,7 +3,6 @@ import multer from 'multer';
 import { Server } from 'socket.io';
 import { AuthService } from '../../services/auth.service.js';
 import { NoteService } from '../../services/note.service.js';
-import { DEFAULT_BOARD_ID } from '../../models/note.model.js';
 import { ServerToClientEvents, ClientToServerEvents, SocketData } from '../../models/socket-events.js';
 
 type AppServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
@@ -17,7 +16,7 @@ export function createBoardRoutes(
 ): Router {
   const router = Router();
 
-  router.post('/api/boards/default/import', upload.single('file'), async (req: Request, res: Response) => {
+  router.post('/api/boards/:boardId/import', upload.single('file'), async (req: Request, res: Response) => {
     try {
       // Verify JWT
       const authHeader = req.headers.authorization;
@@ -29,6 +28,12 @@ export function createBoardRoutes(
       const payload = authService.verifyToken(token);
       if (!payload) {
         res.status(401).json({ error: 'Invalid token' });
+        return;
+      }
+
+      const boardId = req.params.boardId as string;
+      if (!boardId?.trim()) {
+        res.status(400).json({ error: 'Board ID is required' });
         return;
       }
 
@@ -50,10 +55,10 @@ export function createBoardRoutes(
         return;
       }
 
-      const imported = await noteService.importNotes(notes, DEFAULT_BOARD_ID, payload.username);
+      const imported = await noteService.importNotes(notes, boardId, payload.username);
 
       // Broadcast to all connected clients
-      const BOARD_ROOM = `board:${DEFAULT_BOARD_ID}`;
+      const BOARD_ROOM = `board:${boardId}`;
       io.to(BOARD_ROOM).emit('board:notes-imported', imported);
 
       res.json({ imported: imported.length });

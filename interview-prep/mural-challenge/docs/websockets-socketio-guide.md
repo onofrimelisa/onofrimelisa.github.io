@@ -607,6 +607,35 @@ For very high-throughput systems (millions of concurrent connections), Redis Pub
 | `@socket.io/mongo-adapter` | If you already have MongoDB and don't want to add Redis |
 | Custom adapter | Implement your own for Kafka, RabbitMQ, etc. |
 
+#### Redis Adapter vs MongoDB Adapter
+
+Since we already have MongoDB in the stack, the question "why add Redis instead of using the Mongo adapter?" is fair. The answer is about how each one relays messages.
+
+| Aspect | `@socket.io/redis-adapter` | `@socket.io/mongo-adapter` |
+|--------|---------------------------|---------------------------|
+| **Mechanism** | Redis Pub/Sub (in-memory message bus) | MongoDB Change Streams (tailable cursor on a capped collection) |
+| **Latency** | ~1ms (memory-to-memory) | ~5-50ms (write to disk + oplog tail + change stream notification) |
+| **Throughput** | Very high (~100K+ msg/sec) | Lower (each broadcast = a document insert + oplog propagation) |
+| **Persistence** | None (fire-and-forget) | Yes (messages written to a capped collection) |
+| **Infrastructure** | Requires Redis (extra service) | Uses existing MongoDB (no extra service) |
+| **Requires replica set** | No | Yes (Change Streams need oplog, which requires a replica set — `mongod --replSet`) |
+| **Cleanup** | Automatic (messages don't persist) | Capped collection auto-evicts, but still writes to disk |
+| **Maturity** | Official, widely used in production | Official, less common |
+
+**How the Mongo adapter works internally:**
+1. Server A wants to broadcast `note:moved` to a room
+2. The adapter inserts a document into a capped collection: `{ type: 'broadcast', room: 'default', data: {...} }`
+3. All server instances have a Change Stream cursor tailing that collection
+4. Servers B and C pick up the new document and deliver to their local sockets
+
+**Why we chose Redis:**
+1. **Latency** — For real-time drag events, the difference between ~1ms (Redis Pub/Sub) and ~5-50ms (Mongo write + oplog + Change Stream) is perceptible. During a drag, we emit ~20 position updates/sec; each one going through a Mongo write cycle adds visible lag for remote users.
+2. **No replica set requirement** — The Mongo adapter needs Change Streams, which require a MongoDB replica set. Our Docker setup uses a standalone `mongod`. Adding `--replSet` for a single-node setup just to enable the adapter is unnecessary ceremony.
+3. **Separation of concerns** — Redis handles ephemeral real-time messaging; MongoDB handles durable persistence. Routing transient broadcast packets through the database mixes concerns and adds write load to Mongo that doesn't need durability.
+4. **This is what production systems use** — Miro, Figma, Slack, and similar real-time apps use Redis (or similar in-memory buses) for message relay, not the persistence layer.
+
+**When the Mongo adapter makes sense:** If you absolutely cannot add another service to your infrastructure and your real-time requirements are modest (e.g., <5 updates/sec, notifications rather than live collaboration). The persistence can even be a feature — missed messages survive in the capped collection for late-joining instances to catch up.
+
 ### 5.7 Scaling Decision Tree
 
 ```
