@@ -33,9 +33,9 @@ src/
 
 | Decision | Reference |
 |----------|-----------|
-| MongoDB native driver (not Mongoose) | `../docs/mongodb-guide.md` |
-| Layered + hexagonal principles | `../docs/backend-architecture-guide.md` |
-| Socket.io WebSocket-only | `../docs/websockets-socketio-guide.md` Section 5 |
+| MongoDB native driver (not Mongoose) | `../docs/specs/2026-11-17-collaborative-board-design.md` Section 6 |
+| Layered + hexagonal principles | `../docs/specs/2026-11-17-collaborative-board-design.md` Section 8 |
+| Socket.io WebSocket-only | `../docs/specs/2026-11-17-collaborative-board-design.md` Section 4 |
 | Redis Pub/Sub for scaling | `../docs/specs/2026-11-17-collaborative-board-design.md` Section 4 |
 
 ## OpenSpec
