@@ -4,7 +4,7 @@ A full-stack prototype of a collaborative whiteboard where multiple users can cr
 
 ## Demo
 
-[![Watch the demo](https://cdn.loom.com/sessions/thumbnails/a85b4e825a7d4d859f7727ac236a3802-2cfc271874bbf33c.jpg)](https://www.loom.com/share/a85b4e825a7d4d859f7727ac236a3802)
+[![Watch the demo](https://www.loom.com/v1/videos/a85b4e825a7d4d859f7727ac236a3802/thumbnail.gif)](https://www.loom.com/share/a85b4e825a7d4d859f7727ac236a3802)
 
 ## Quick Start
 
